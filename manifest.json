@@ -1,0 +1,30 @@
+{
+  "name": "小臣版AI-boss海投助手",
+  "namespace": "https://github.com/DYxiaochen",
+  "version": "2.0.0.0",
+  "description": "基于Yangshengzhou开源项目改进的求职工具！小臣开发用于提高BOSS直聘投递效率，AI智能回复，批量沟通，高效求职",
+  "author": "小臣",
+  "background": {
+    "scripts": ["Boss_helper.js"]
+  },
+  "grant": [
+    "GM_xmlhttpRequest"
+  ],
+  "match": [
+    "https://www.zhipin.com/web/*"
+  ],
+  "connect": [
+    "zhipin.com",
+    "spark-api-open.xf-yun.com",
+    "jasun.xyz",
+    "api.siliconflow.cn",
+    "ark.cn-beijing.volces.com",
+    "api.openai.com",
+    "api.deepseek.com"
+  ],
+  "require": [
+    "https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.min.js"
+  ],
+  "run-at": "document-idle",
+  "noframes": true
+}
