@@ -3,7 +3,7 @@
 """
 from flask import Blueprint, request, jsonify
 from models import db, AnalyticsEvent
-from utils.auth import get_current_user
+from utils.auth import get_current_user, login_required
 
 analytics_bp = Blueprint('analytics', __name__, url_prefix='/api/analytics')
 
@@ -69,6 +69,7 @@ def ingest_event():
 
 
 @analytics_bp.route('/stats', methods=['GET'])
+@login_required
 def get_stats():
     from sqlalchemy import func
     from datetime import datetime, timedelta

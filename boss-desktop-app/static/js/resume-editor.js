@@ -2,6 +2,27 @@
  * 简历编辑器 — 富文本编辑 + AI 分析/优化
  */
 
+function sanitizeHtml(html) {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style,iframe,object,embed,link').forEach(el => el.remove());
+  doc.querySelectorAll('*').forEach(el => {
+    Array.from(el.attributes).forEach(attr => {
+      if (attr.name.startsWith('on') || (attr.name === 'href' && attr.value.startsWith('javascript:'))) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return doc.body.innerHTML;
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
 // New resume
 document.getElementById('btn-new-resume').addEventListener('click', () => {
   document.getElementById('resume-list').classList.add('hidden');
@@ -55,7 +76,7 @@ document.getElementById('btn-save-resume').addEventListener('click', async () =>
   const url = state.editingResumeId ? '/api/resumes/' + state.editingResumeId : '/api/resumes';
   const method = state.editingResumeId ? 'PUT' : 'POST';
   const res = await fetch('/api' + url, {
-    method, headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer local-mode-fake-token' },
+    method, headers: authHeaders(),
     body: JSON.stringify({ title, content }),
   }).then(r => r.json());
 
@@ -70,14 +91,14 @@ document.getElementById('btn-save-resume').addEventListener('click', async () =>
 
 // Edit resume
 async function editResume(id) {
-  const res = await fetch('/api/resumes', { headers: { 'Authorization': 'Bearer local-mode-fake-token' } }).then(r => r.json());
+  const res = await fetch('/api/resumes', { headers: authHeaders() }).then(r => r.json());
   if (!res.success) return;
   const resume = res.data.find(r => r.id === id);
   if (!resume) return;
   state.editingResumeId = id;
   document.getElementById('resume-list').classList.add('hidden');
   document.getElementById('resume-editor').classList.remove('hidden');
-  document.getElementById('editor-content').innerHTML = resume.content;
+  document.getElementById('editor-content').innerHTML = sanitizeHtml(resume.content);
   document.getElementById('resume-title-input').value = resume.title;
   document.getElementById('analysis-result').classList.add('hidden');
   document.getElementById('optimize-result').classList.add('hidden');
@@ -93,7 +114,7 @@ document.getElementById('btn-analyze-resume').addEventListener('click', async ()
   panel.innerHTML = '<div class="loading">AI 分析中</div>';
 
   const res = await fetch('/api/ai/analyze', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer local-mode-fake-token' },
+    method: 'POST', headers: authHeaders(),
     body: JSON.stringify({ resume_text: text }),
   }).then(r => r.json());
 
@@ -106,18 +127,18 @@ document.getElementById('btn-analyze-resume').addEventListener('click', async ()
   const dims = d.dimensions || {};
   panel.innerHTML = `
     <h4>📊 简历评分报告</h4>
-    <p style="font-size:24px;font-weight:700;color:var(--primary);margin:8px 0;">综合: ${d.overall_score}分</p>
+    <p style="font-size:24px;font-weight:700;color:var(--primary);margin:8px 0;">综合: ${+d.overall_score || 0}分</p>
     ${Object.entries(dims).map(([k, v]) => `
       <div class="score-bar">
-        <span class="score-bar-label">${dimLabel(k)}</span>
-        <div class="score-bar-fill"><div class="score-bar-fill-inner" style="width:${(v.score/v.max_score*100).toFixed(0)}%"></div></div>
-        <span class="score-bar-value">${v.score}/${v.max_score}</span>
+        <span class="score-bar-label">${escHtml(dimLabel(k))}</span>
+        <div class="score-bar-fill"><div class="score-bar-fill-inner" style="width:${+(v.score/v.max_score*100).toFixed(0)}%"></div></div>
+        <span class="score-bar-value">${+v.score}/${+v.max_score}</span>
       </div>
-      <p style="font-size:12px;color:#666;margin:0 0 8px 98px;">${v.analysis||''}</p>
+      <p style="font-size:12px;color:#666;margin:0 0 8px 98px;">${escHtml(v.analysis||'')}</p>
     `).join('')}
-    ${d.strengths ? `<p style="margin-top:12px;"><strong>✅ 优势:</strong> ${d.strengths.join('、')}</p>` : ''}
-    ${d.weaknesses ? `<p><strong>⚠️ 短板:</strong> ${d.weaknesses.join('、')}</p>` : ''}
-    ${d.resume_optimization_suggestions ? `<p><strong>💡 建议:</strong> ${d.resume_optimization_suggestions.join('；')}</p>` : ''}
+    ${d.strengths ? `<p style="margin-top:12px;"><strong>✅ 优势:</strong> ${escHtml((d.strengths||[]).join('、'))}</p>` : ''}
+    ${d.weaknesses ? `<p><strong>⚠️ 短板:</strong> ${escHtml((d.weaknesses||[]).join('、'))}</p>` : ''}
+    ${d.resume_optimization_suggestions ? `<p><strong>💡 建议:</strong> ${escHtml((d.resume_optimization_suggestions||[]).join('；'))}</p>` : ''}
   `;
 
   // Store analysis for later optimize
@@ -145,7 +166,7 @@ document.getElementById('btn-optimize-resume').addEventListener('click', async (
   const analysis = analysisPanel._analysisData || {};
 
   const res = await fetch('/api/ai/rewrite', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer local-mode-fake-token' },
+    method: 'POST', headers: authHeaders(),
     body: JSON.stringify({ resume_text: text, analysis }),
   }).then(r => r.json());
 

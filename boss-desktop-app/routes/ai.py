@@ -8,6 +8,8 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 from models import db, AIConfig, Resume, InterestedJob, InterviewSession
 from utils.auth import login_required
+from utils.crypto import encrypt_key, decrypt_key
+from utils.rate_limit import rate_limit
 import requests
 
 ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')
@@ -18,6 +20,11 @@ def get_default_ai_config():
     if not config:
         config = AIConfig.query.filter_by(is_active=True).first()
     return config
+
+
+def _api_key(config):
+    """获取解密后的 API Key"""
+    return decrypt_key(config.api_key) if config and config.api_key else ''
 
 
 def mask_api_key(key):
@@ -43,14 +50,15 @@ def get_ai_config():
 def get_ai_settings():
     config = get_default_ai_config()
     if config:
+        raw_key = decrypt_key(config.api_key) or ''
         return jsonify({
             'success': True,
             'data': {
                 'api_url': config.api_url,
                 'model': config.model,
-                'api_key': config.api_key or '',
-                'has_api_key': bool(config.api_key),
-                'api_key_preview': mask_api_key(config.api_key) if config.api_key else '',
+                'api_key': raw_key,
+                'has_api_key': bool(raw_key),
+                'api_key_preview': mask_api_key(raw_key) if raw_key else '',
             }
         })
     return jsonify({
@@ -67,6 +75,7 @@ def get_ai_settings():
 
 @ai_bp.route('/settings', methods=['POST'])
 @login_required
+@rate_limit(max_requests=20, window_seconds=300)
 def save_ai_settings():
     data = request.get_json() or {}
     api_key = data.get('api_key', '').strip()
@@ -81,14 +90,14 @@ def save_ai_settings():
         config = AIConfig(
             config_name='default',
             api_url=api_url,
-            api_key=api_key,
+            api_key=encrypt_key(api_key),
             model=model,
             is_active=True,
             is_default=True,
         )
         db.session.add(config)
     else:
-        config.api_key = api_key
+        config.api_key = encrypt_key(api_key)
         config.model = model
         config.api_url = api_url
 
@@ -98,6 +107,7 @@ def save_ai_settings():
 
 @ai_bp.route('/test', methods=['POST'])
 @login_required
+@rate_limit(max_requests=10, window_seconds=300)
 def test_ai_connection():
     data = request.get_json() or {}
     api_key = data.get('api_key', '').strip()
@@ -131,11 +141,12 @@ def test_ai_connection():
     except requests.Timeout:
         return jsonify({'success': False, 'error': '连接超时，请检查网络'}), 504
     except Exception as e:
-        return jsonify({'success': False, 'error': f'连接失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': '连接失败，请检查网络和 API 地址'}), 500
 
 
 @ai_bp.route('/proxy', methods=['POST'])
 @login_required
+@rate_limit(max_requests=60, window_seconds=60)
 def ai_proxy():
     """通用 AI 代理 — 前端传 messages，后端注入 Key 转发"""
     data = request.get_json()
@@ -151,7 +162,7 @@ def ai_proxy():
         return jsonify({'success': False, 'error': 'messages 参数不能为空'}), 400
 
     config = get_default_ai_config()
-    if not config or not config.api_key:
+    if not config or not _api_key(config):
         return jsonify({'success': False, 'error': 'AI 服务未配置，请在桌面端设置 AI Key'}), 500
 
     if not model:
@@ -164,7 +175,7 @@ def ai_proxy():
 
         resp = requests.post(
             endpoint,
-            headers={'Authorization': f'Bearer {config.api_key}', 'Content-Type': 'application/json'},
+            headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={'model': model, 'messages': messages, 'temperature': temperature, 'max_tokens': max_tokens},
             timeout=120,
         )
@@ -198,7 +209,7 @@ def analyze_resume():
     try:
         resp = requests.post(
             config.api_url,
-            headers={'Authorization': f'Bearer {config.api_key}', 'Content-Type': 'application/json'},
+            headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={'model': config.model, 'messages': [
                 {'role': 'system', 'content': '你是一位资深 HR 专家，擅长简历筛选和人才评估。'},
                 {'role': 'user', 'content': prompt},
@@ -212,7 +223,7 @@ def analyze_resume():
         analysis = _parse_ai_json(ai_response)
         return jsonify({'success': True, 'data': analysis})
     except Exception as e:
-        return jsonify({'success': False, 'error': f'分析失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': '分析失败，请稍后重试'}), 500
 
 
 @ai_bp.route('/rewrite', methods=['POST'])
@@ -233,7 +244,7 @@ def rewrite_resume():
     try:
         resp = requests.post(
             config.api_url,
-            headers={'Authorization': f'Bearer {config.api_key}', 'Content-Type': 'application/json'},
+            headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={'model': config.model, 'messages': [
                 {'role': 'system', 'content': '你是一位顶尖简历优化专家。'},
                 {'role': 'user', 'content': prompt},
@@ -246,7 +257,7 @@ def rewrite_resume():
         result = resp.json()
         return jsonify({'success': True, 'data': {'rewritten_resume': result['choices'][0]['message']['content']}})
     except Exception as e:
-        return jsonify({'success': False, 'error': f'优化失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': '优化失败，请稍后重试'}), 500
 
 
 def _build_analysis_prompt(resume_text):
@@ -401,7 +412,7 @@ def generate_greeting():
     try:
         resp = requests.post(
             config.api_url,
-            headers={'Authorization': f'Bearer {config.api_key}', 'Content-Type': 'application/json'},
+            headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={
                 'model': config.model,
                 'messages': messages,
@@ -435,7 +446,7 @@ def generate_greeting():
     except requests.Timeout:
         return jsonify({'success': False, 'error': 'AI 服务响应超时'}), 504
     except Exception as e:
-        return jsonify({'success': False, 'error': f'生成失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': '生成失败，请稍后重试'}), 500
 
 
 INTERVIEW_PHASES = ['opening', 'technical', 'experience', 'behavioral', 'reverse', 'closing']
@@ -515,7 +526,7 @@ def interview():
     try:
         resp = requests.post(
             config.api_url,
-            headers={'Authorization': f'Bearer {config.api_key}', 'Content-Type': 'application/json'},
+            headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={
                 'model': config.model,
                 'messages': [
@@ -567,7 +578,7 @@ def interview():
     except requests.Timeout:
         return jsonify({'success': False, 'error': 'AI 服务响应超时'}), 504
     except Exception as e:
-        return jsonify({'success': False, 'error': f'面试请求失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'error': '面试请求失败，请稍后重试'}), 500
 
 
 @ai_bp.route('/interview/sessions', methods=['GET'])
@@ -663,7 +674,7 @@ def _generate_interview_report(config, jd_text, resume_text, messages):
     try:
         resp = requests.post(
             config.api_url,
-            headers={'Authorization': f'Bearer {config.api_key}', 'Content-Type': 'application/json'},
+            headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={
                 'model': config.model,
                 'messages': [

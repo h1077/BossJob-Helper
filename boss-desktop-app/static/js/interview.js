@@ -7,7 +7,7 @@ const Interview = {
 
   async init() {
     // 加载岗位列表
-    const jobsRes = await fetch('/api/jobs/interested?per_page=200', { headers:{'Authorization':'Bearer local-mode-fake-token'} }).then(r => r.json());
+    const jobsRes = await fetch('/api/jobs/interested?per_page=200', { headers: authHeaders() }).then(r => r.json());
     const jobSelect = document.getElementById('interview-job-select');
     jobSelect.innerHTML = '<option value="">-- 选择岗位 --</option>';
     if (jobsRes.success) {
@@ -20,7 +20,7 @@ const Interview = {
     }
 
     // 加载简历列表
-    const resumeRes = await fetch('/api/resumes', { headers:{'Authorization':'Bearer local-mode-fake-token'} }).then(r => r.json());
+    const resumeRes = await fetch('/api/resumes', { headers: authHeaders() }).then(r => r.json());
     const resumeSelect = document.getElementById('interview-resume-select');
     resumeSelect.innerHTML = '<option value="">-- 选择简历 --</option>';
     if (resumeRes.success) {
@@ -37,7 +37,7 @@ const Interview = {
   },
 
   async loadHistory() {
-    const res = await fetch('/api/ai/interview/sessions', { headers:{'Authorization':'Bearer local-mode-fake-token'} }).then(r => r.json());
+    const res = await fetch('/api/ai/interview/sessions', { headers: authHeaders() }).then(r => r.json());
     if (!res.success || !res.data.length) return;
 
     const reportDiv = document.getElementById('interview-report');
@@ -94,7 +94,7 @@ const Interview = {
 
       const res = await fetch('/api/ai/interview', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer local-mode-fake-token' },
+        headers: authHeaders(),
         body: JSON.stringify(body),
       }).then(r => r.json());
 
@@ -146,7 +146,7 @@ const Interview = {
   },
 
   async showReport(sessionId) {
-    const res = await fetch('/api/ai/interview/sessions', { headers:{'Authorization':'Bearer local-mode-fake-token'} }).then(r => r.json());
+    const res = await fetch('/api/ai/interview/sessions', { headers: authHeaders() }).then(r => r.json());
     if (!res.success) return;
     const s = res.data.find(x => x.id === sessionId);
     if (!s) return;
@@ -166,20 +166,21 @@ const Interview = {
   showReportData(report) {
     const reportDiv = document.getElementById('interview-report');
     reportDiv.classList.remove('hidden');
+    const eh = this.escapeHtml.bind(this);
     reportDiv.innerHTML = `
       <h3 style="text-align:center;">📊 面试评估报告</h3>
-      <div class="report-score">${report.overall_score || '--'} 分</div>
+      <div class="report-score">${+report.overall_score || '--'} 分</div>
       ${report.strengths ? `
         <h4>✅ 优势</h4>
-        <ul>${report.strengths.map(s => `<li>${s}</li>`).join('')}</ul>
+        <ul>${(report.strengths||[]).map(s => `<li>${eh(s)}</li>`).join('')}</ul>
       ` : ''}
       ${report.weaknesses ? `
         <h4>⚠️ 待改进</h4>
-        <ul>${report.weaknesses.map(s => `<li>${s}</li>`).join('')}</ul>
+        <ul>${(report.weaknesses||[]).map(s => `<li>${eh(s)}</li>`).join('')}</ul>
       ` : ''}
       ${report.suggestions ? `
         <h4>💡 改进建议</h4>
-        <ul>${report.suggestions.map(s => `<li>${s}</li>`).join('')}</ul>
+        <ul>${(report.suggestions||[]).map(s => `<li>${eh(s)}</li>`).join('')}</ul>
       ` : ''}
       <button class="btn btn-primary" onclick="location.reload()">🔄 再来一次</button>
     `;

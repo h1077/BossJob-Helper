@@ -1,8 +1,23 @@
 /**
  * BOSS 海投桌面管家 — 仪表盘逻辑
  */
+// 全局 token，页面加载时预取
+let _localToken = '';
+(async function preloadToken() {
+  try {
+    const r = await fetch('/api/local-token');
+    if (r.ok) { const d = await r.json(); _localToken = d.token || ''; }
+  } catch (e) {}
+})();
+
+function authHeaders() {
+  return _localToken
+    ? { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _localToken }
+    : { 'Content-Type': 'application/json' };
+}
+
 const API = (path, opts = {}) => fetch('/api' + path, {
-  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer local-mode-fake-token' },
+  headers: authHeaders(),
   ...opts,
 }).then(r => r.json());
 
@@ -114,7 +129,7 @@ function statusLabel(s) {
 async function changeStatus(id, status) {
   if (!status) return;
   await fetch('/api/jobs/' + id + '/status', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer local-mode-fake-token' },
+    method: 'PUT', headers: authHeaders(),
     body: JSON.stringify({ status }),
   });
   loadJobs(state.jobsPage);
@@ -124,14 +139,14 @@ async function changeStatus(id, status) {
 async function deleteJob(id) {
   if (!confirm('确定删除此岗位记录？')) return;
   await fetch('/api/jobs/' + id, {
-    method: 'DELETE', headers: { 'Authorization': 'Bearer local-mode-fake-token' },
+    method: 'DELETE', headers: authHeaders(),
   });
   loadJobs(state.jobsPage);
   loadDashboard();
 }
 
 async function showJobDetail(id) {
-  const res = await fetch('/api/jobs/interested?per_page=200', { headers: { 'Authorization': 'Bearer local-mode-fake-token' } }).then(r => r.json());
+  const res = await fetch('/api/jobs/interested?per_page=200', { headers: authHeaders() }).then(r => r.json());
   if (!res.success) return;
   const job = res.data.jobs.find(j => j.id === id);
   if (!job) return;
@@ -169,7 +184,7 @@ async function loadResumes() {
 
 async function deleteResume(id) {
   if (!confirm('确定删除此简历？')) return;
-  await fetch('/api/resumes/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer local-mode-fake-token' } });
+  await fetch('/api/resumes/' + id, { method: 'DELETE', headers: authHeaders() });
   loadResumes();
 }
 
