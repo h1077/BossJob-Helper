@@ -755,7 +755,89 @@
         background: #f9fafb;
     `;
 
+    // 简历切换
+    const resumeSwitchContainer = document.createElement("div");
+    resumeSwitchContainer.style.cssText = "display: flex; gap: 8px; margin-bottom: 10px; align-items: center;";
+
+    const resumeSelect = document.createElement("select");
+    resumeSelect.id = "resume-select";
+    resumeSelect.style.cssText = "flex: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 13px;";
+
+    const loadResumeOptions = () => {
+      resumeSelect.innerHTML = '<option value="">-- 选择简历 --</option>';
+      const resumes = state.settings.resumes || [];
+      if (resumes.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "__current__";
+        opt.textContent = "默认简历";
+        resumeSelect.appendChild(opt);
+      } else {
+        resumes.forEach((r, i) => {
+          const opt = document.createElement("option");
+          opt.value = String(i);
+          opt.textContent = r.name || ("简历 " + (i + 1));
+          resumeSelect.appendChild(opt);
+        });
+      }
+    };
+    loadResumeOptions();
+
+    resumeSelect.addEventListener("change", () => {
+      const idx = resumeSelect.value;
+      if (idx === "__current__") return;
+      const resumes = state.settings.resumes || [];
+      const selected = resumes[parseInt(idx)];
+      if (selected) {
+        state.settings.resumeText = selected.text || "";
+        state.settings.resumeAnalysis = selected.analysis || "";
+        if (typeof setLargeItem === "function") {
+          setLargeItem("resumeText", selected.text || "");
+          setLargeItem("resumeAnalysis", selected.analysis || "");
+        }
+        resumeTextArea.value = selected.text || "";
+        analysisResultArea.value = selected.analysis || "";
+        showNotification(`已切换到: ${selected.name}`, "success");
+      }
+    });
+
+    const saveAsNewBtn = document.createElement("button");
+    saveAsNewBtn.textContent = "另存为";
+    saveAsNewBtn.style.cssText = "padding: 6px 10px; border-radius: 6px; border: 1px solid #667eea; background: rgba(102,126,234,0.1); color: #667eea; cursor: pointer; font-size: 12px; white-space: nowrap;";
+    saveAsNewBtn.addEventListener("click", () => {
+      const name = prompt("给这份简历起个名字：", "新简历");
+      if (!name) return;
+      const text = resumeTextArea.value.trim();
+      const analysis = analysisResultArea.value.trim();
+      if (!text) { showNotification("简历内容为空", "error"); return; }
+      if (!state.settings.resumes) state.settings.resumes = [];
+      state.settings.resumes.push({ id: Date.now().toString(), name, text, analysis });
+      localStorage.setItem("bossResumes", JSON.stringify(state.settings.resumes));
+      loadResumeOptions();
+      resumeSelect.value = String(state.settings.resumes.length - 1);
+      showNotification(`简历 "${name}" 已保存`, "success");
+    });
+
+    const deleteResumeBtn = document.createElement("button");
+    deleteResumeBtn.textContent = "删除";
+    deleteResumeBtn.style.cssText = "padding: 6px 10px; border-radius: 6px; border: 1px solid #ef4444; background: rgba(239,68,68,0.08); color: #ef4444; cursor: pointer; font-size: 12px; white-space: nowrap;";
+    deleteResumeBtn.addEventListener("click", () => {
+      const idx = parseInt(resumeSelect.value);
+      if (isNaN(idx) || !state.settings.resumes || !state.settings.resumes[idx]) {
+        showNotification("请先选择要删除的简历", "error"); return;
+      }
+      const name = state.settings.resumes[idx].name;
+      if (confirm(`确定删除简历 "${name}"？`)) {
+        state.settings.resumes.splice(idx, 1);
+        localStorage.setItem("bossResumes", JSON.stringify(state.settings.resumes));
+        loadResumeOptions();
+        showNotification("已删除", "success");
+      }
+    });
+
+    resumeSwitchContainer.append(resumeSelect, saveAsNewBtn, deleteResumeBtn);
+
     resumeUploadContainer.append(
+      resumeSwitchContainer,
       fileUploadArea,
       fileInput,
       pasteHint,
@@ -1388,9 +1470,51 @@
     statusSelect.append(statusHeader, statusOptions);
     recruiterStatusSetting.append(statusSelect);
 
+    // 公司背景评估开关
+    const companyCheckSettingResult = createSettingItem(
+      "公司背景评估",
+      "AI分析岗位JD判断岗位靠谱度，1-6分自动拒绝（基于岗位JD内容评估）",
+      () => document.querySelector("#toggle-company-check input")
+    );
+    const companyCheckSetting = companyCheckSettingResult.settingItem;
+    const companyCheckDesc = companyCheckSettingResult.descriptionContainer;
+
+    const companyCheckToggle = createToggleSwitch(
+      "company-check",
+      settings.ai.enableCompanyCheck !== false,
+      (checked) => {
+        settings.ai.enableCompanyCheck = checked;
+        state.settings.ai.enableCompanyCheck = checked;
+        localStorage.setItem("enableCompanyCheck", checked);
+      }
+    );
+    companyCheckDesc.append(companyCheckToggle);
+
+    // 企业背景调查开关
+    const companyResearchSettingResult = createSettingItem(
+      "企业背景调查",
+      "AI基于训练数据评估公司背景（规模、口碑、负面新闻、劳动纠纷），与JD评估合并为一次API调用",
+      () => document.querySelector("#toggle-company-research input")
+    );
+    const companyResearchSetting = companyResearchSettingResult.settingItem;
+    const companyResearchDesc = companyResearchSettingResult.descriptionContainer;
+
+    const companyResearchToggle = createToggleSwitch(
+      "company-research",
+      settings.ai.enableCompanyResearch === true,
+      (checked) => {
+        settings.ai.enableCompanyResearch = checked;
+        state.settings.ai.enableCompanyResearch = checked;
+        localStorage.setItem("enableCompanyResearch", checked);
+      }
+    );
+    companyResearchDesc.append(companyResearchToggle);
+
     advancedSettingsPanel.append(
       autoReplySetting,
       autoSendResumeSetting,
+      companyCheckSetting,
+      companyResearchSetting,
       excludeHeadhuntersSetting,
       imageResumeSetting,
       recruiterStatusSetting

@@ -12,6 +12,9 @@
       UI.init();
       StatsManager.load();
       UI.updateStatsDisplay();
+      UI.updateInterviewDisplay();
+      UI.updateDashboard();
+      Analytics.track("script_init", location.pathname.includes("/chat") ? "chat" : "jobs", {});
       document.body.style.position = "relative";
       const today = getToday();
       if (location.pathname.includes("/jobs")) {

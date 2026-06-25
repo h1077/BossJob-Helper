@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boss海投小助手</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" style="width:28px;height:28px;fill:#4285f4;"><path d="M896 256H640V160c0-35.3-28.7-64-64-64H448c-35.3 0-64 28.7-64 64v96H128c-35.3 0-64 28.7-64 64v512c0 35.3 28.7 64 64 64h768c35.3 0 64-28.7 64-64V320c0-35.3-28.7-64-64-64zM448 160h128v96H448V160zm448 672H128V320h768v512z"/><path d="M512 480c-70.7 0-128 57.3-128 128s57.3 128 128 128 128-57.3 128-128-57.3-128-128-128zm0 192c-35.3 0-64-28.7-64-64s28.7-64 64-64 64 28.7 64 64-28.7 64-64 64z"/></svg>
+    <span>Boss海投<span style="color:#4285f4;">小助手</span></span>
+  </div>
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <a class="nav-item active" data-page="dashboard">
+      <span class="nav-icon">📊</span> 仪表盘
+    </a>
+    <a class="nav-item" data-page="jobs">
+      <span class="nav-icon">📋</span> 职位追踪
+    </a>
+    <a class="nav-item" data-page="resumes">
+      <span class="nav-icon">📝</span> 简历管理
+    </a>
+    <a class="nav-item" data-page="settings">
+      <span class="nav-icon">⚙️</span> AI 设置
+    </a>
+    <a class="nav-item" data-page="interview">
+      <span class="nav-icon">🎯</span> 模拟面试
+    </a>
+    <a class="nav-item" data-page="export">
+      <span class="nav-icon">📥</span> 导出数据
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">运行中</span>
+  </div>
+</aside>
+
+<main class="main-content" id="main-content">
+  <!-- 仪表盘 -->
+  <section class="page active" id="page-dashboard">
+    <h2 class="page-title">📊 求职仪表盘</h2>
+    <div class="stats-cards" id="stats-cards">
+      <div class="stat-card"><div class="stat-icon">👋</div><div class="stat-value" id="stat-total">0</div><div class="stat-label">总投递</div></div>
+      <div class="stat-card"><div class="stat-icon">💬</div><div class="stat-value" id="stat-interviewing">0</div><div class="stat-label">面试中</div></div>
+      <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-value" id="stat-interested">0</div><div class="stat-label">有意向</div></div>
+      <div class="stat-card"><div class="stat-icon">❌</div><div class="stat-value" id="stat-rejected">0</div><div class="stat-label">已拒绝</div></div>
+    </div>
+    <div class="card chart-card"><h3>📈 近14天投递趋势</h3><div class="chart-container" id="daily-chart"></div></div>
+    <div class="card"><h3>🕐 最近投递</h3><div class="table-wrap"><table class="data-table" id="recent-table"><thead><tr><th>公司</th><th>岗位</th><th>薪资</th><th>地点</th><th>状态</th><th>时间</th></tr></thead><tbody></tbody></table></div></div>
+  </section>
+
+  <!-- 职位追踪 -->
+  <section class="page" id="page-jobs">
+    <h2 class="page-title">📋 职位追踪</h2>
+    <div class="filter-bar">
+      <input type="text" id="job-search" placeholder="搜索公司或岗位...">
+      <select id="job-status-filter"><option value="">全部状态</option><option value="applied">已投递</option><option value="interviewing">面试中</option><option value="interested">有意向</option><option value="rejected">已拒绝</option></select>
+      <button class="btn btn-sm" id="job-search-btn">搜索</button>
+    </div>
+    <div class="card"><div class="table-wrap"><table class="data-table" id="jobs-table"><thead><tr><th>公司</th><th>岗位</th><th>薪资</th><th>地点</th><th>状态</th><th>匹配度</th><th>投递时间</th><th>操作</th></tr></thead><tbody></tbody></table></div></div>
+    <div class="pagination" id="jobs-pagination"></div>
+  </section>
+
+  <!-- 简历管理 -->
+  <section class="page" id="page-resumes">
+    <h2 class="page-title">📝 简历管理</h2>
+    <button class="btn btn-primary" id="btn-new-resume">+ 新建简历</button>
+    <div id="resume-list" class="resume-list"></div>
+    <div id="resume-editor" class="resume-editor hidden">
+      <div class="editor-toolbar" id="editor-toolbar"></div>
+      <div class="editor-body" contenteditable="true" id="editor-content" placeholder="在此粘贴或编辑简历内容..."></div>
+      <div class="editor-actions">
+        <input type="text" id="resume-title-input" placeholder="简历标题（如：前端开发工程师-张三）" style="flex:1;">
+        <button class="btn btn-primary btn-sm" id="btn-save-resume">保存</button>
+        <button class="btn btn-sm" id="btn-analyze-resume">🤖 AI 分析</button>
+        <button class="btn btn-sm" id="btn-optimize-resume">✨ AI 优化</button>
+        <button class="btn btn-ghost btn-sm" id="btn-cancel-editor">取消</button>
+      </div>
+      <div id="analysis-result" class="analysis-panel hidden"></div>
+      <div id="optimize-result" class="optimize-panel hidden"></div>
+    </div>
+  </section>
+
+  <!-- AI 设置 -->
+  <section class="page" id="page-settings">
+    <h2 class="page-title">⚙️ AI 设置</h2>
+    <div class="card settings-form">
+      <div class="form-group"><label>API 地址</label><input type="text" id="ai-api-url" placeholder="https://api.siliconflow.cn/v1/chat/completions"></div>
+      <div class="form-group"><label>API Key</label><input type="password" id="ai-api-key" placeholder="sk-..."></div>
+      <div class="form-group"><label>模型</label><input type="text" id="ai-model" placeholder="deepseek-ai/DeepSeek-V3.2"></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="btn-save-ai">保存配置</button>
+        <button class="btn" id="btn-test-ai">🔗 测试连接</button>
+      </div>
+      <div id="ai-test-result"></div>
+    </div>
+  </section>
+
+  <!-- 导出 -->
+  <section class="page" id="page-export">
+    <h2 class="page-title">📥 导出数据</h2>
+    <div class="card export-card">
+      <p>当前共 <strong id="export-count">0</strong> 条投递记录</p>
+      <div class="export-actions">
+        <button class="btn btn-primary" id="btn-export-csv">📄 导出 CSV</button>
+        <button class="btn btn-primary" id="btn-export-xlsx">📊 导出 Excel</button>
+        <button class="btn" id="btn-export-json">📦 导出 JSON</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 模拟面试 -->
+  <section class="page" id="page-interview">
+    <h2 class="page-title">🎯 AI 模拟面试</h2>
+    <div id="interview-setup" class="card">
+      <h3>面试设置</h3>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <div class="form-group" style="flex:1;min-width:200px;">
+          <label>选择岗位（使用已收集的 JD）</label>
+          <select id="interview-job-select"><option value="">-- 选择岗位 --</option></select>
+        </div>
+        <div class="form-group" style="flex:1;min-width:200px;">
+          <label>选择简历</label>
+          <select id="interview-resume-select"><option value="">-- 选择简历 --</option></select>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-start-interview" style="margin-top:16px;">🚀 开始面试</button>
+      <p style="font-size:12px;color:#999;margin-top:8px;">AI 将扮演 HR，根据岗位 JD 和你的简历进行分阶段面试提问。回答得越详细，AI 追问越有深度。</p>
+    </div>
+
+    <div id="interview-room" class="card hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3>面试进行中 <span id="interview-phase-badge" style="font-size:12px;font-weight:400;">开场</span></h3>
+        <button class="btn btn-ghost btn-sm" id="btn-end-interview">结束面试</button>
+      </div>
+      <div class="interview-chat" id="interview-chat"></div>
+      <div class="interview-input-row">
+        <textarea id="interview-input" placeholder="输入你的回答..." rows="3"></textarea>
+        <button class="btn btn-primary" id="btn-send-answer">发送</button>
+      </div>
+    </div>
+
+    <div id="interview-report" class="card hidden"></div>
+  </section>
+</main>
+
+<script src="/js/app.js"></script>
+<script src="/js/resume-editor.js"></script>
+<script src="/js/interview.js"></script>
+</body>
+</html>

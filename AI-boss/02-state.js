@@ -19,6 +19,8 @@
       sentResumeHRs: new Set(getStoredJSON("sentResumeHRs", [])),
       sentImageResumeHRs: new Set(getStoredJSON("sentImageResumeHRs", [])),
       lastMessageTime: getStoredJSON("lastMessageTime", {}),
+      lastSentMsg: getStoredJSON("lastSentMsg", {}),
+      rejectedHRs: new Set(getStoredJSON("rejectedHRs", [])),
     },
 
     ai: {
@@ -33,6 +35,8 @@
     interviewInvites: 0,
     date: "",
   },
+
+  interviews: getStoredJSON("bossInterviews", []),
 
     settings: {
       useAutoSendResume: getStoredJSON("useAutoSendResume", false),
@@ -49,6 +53,8 @@
         model: localStorage.getItem("aiModel") || "lite",
         useCustomApi: localStorage.getItem("useCustomApi") === "true",
         conversationStrategy: localStorage.getItem("conversationStrategy") || "balanced",
+        enableCompanyCheck: localStorage.getItem("enableCompanyCheck") !== "false",
+        enableCompanyResearch: localStorage.getItem("enableCompanyResearch") === "true",
       },
       autoReply: getStoredJSON("autoReply", false),
       useAutoSendImageResume: getStoredJSON("useAutoSendImageResume", false),
@@ -66,9 +72,11 @@
       greetingsList: getStoredJSON("greetingsList", [
 
       ]),
+      resumes: getStoredJSON("bossResumes", []),
     },
 
     customGreeting: null,
+    lastJdText: null,
 
     comments: {
       currentCompanyName: "",
@@ -76,6 +84,11 @@
       isLoading: false,
       isCommentMode: false,
     },
+
+    conversationMemory: {},
+
+    jobTracker: getStoredJSON("bossJobTracker", []),
+    analyticsEvents: getStoredJSON("bossAnalytics", []),
   };
 
   const elements = {

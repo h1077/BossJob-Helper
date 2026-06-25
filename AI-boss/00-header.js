@@ -18,6 +18,7 @@
 // @connect      ark.cn-beijing.volces.com
 // @connect      api.openai.com
 // @connect      api.deepseek.com
+// @connect      localhost
 // @noframes
 // @require      https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.min.js
 // ==/UserScript==

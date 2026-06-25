@@ -14,6 +14,7 @@ const files = [
   '09-conversation.js',
   '10-process.js',
   '11-extras.js',
+  '13-desktop-bridge.js',
   '12-footer.js',
 ];
 

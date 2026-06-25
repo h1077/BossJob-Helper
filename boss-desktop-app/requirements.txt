@@ -1,0 +1,6 @@
+flask>=3.0
+flask-sqlalchemy>=3.1
+flask-cors
+requests
+pyjwt
+openpyxl

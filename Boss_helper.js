@@ -18,6 +18,7 @@
 // @connect      ark.cn-beijing.volces.com
 // @connect      api.openai.com
 // @connect      api.deepseek.com
+// @connect      localhost
 // @noframes
 // @require      https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.min.js
 // ==/UserScript==
@@ -80,6 +81,8 @@
       AI_REPLY_COUNT: "aiReplyCount",
       LAST_AI_DATE: "lastAiDate",
       DAILY_STATS: "bossDailyStats",
+      JOB_TRACKER: "bossJobTracker",
+      ANALYTICS: "bossAnalytics",
     },
     STORAGE_LIMITS: {
       PROCESSED_HRS: 500,
@@ -118,10 +121,30 @@
       DESC_WEIGHT: 1,
     },
 
+    COMPANY_CHECK: {
+      REJECT_THRESHOLD: 6,
+    },
+
     PEAK_HOURS: [
       { start: 9, end: 11, label: "上午 9:00-11:00" },
       { start: 14, end: 17, label: "下午 14:00-17:00" },
-    ]
+    ],
+
+    REJECTION_KEYWORDS: [
+      "不合适", "不太符合", "不考虑", "抱歉", "遗憾",
+      "已招到", "招满了", "暂时不需要", "有更合适的人选",
+      "下次合作", "以后再说", "不需要了", "不太匹配",
+      "经验不符", "技能不匹配", "已停止招聘", "岗位关闭",
+      "已找到合适人选", "不录用", "暂时不招", "目前已招满",
+      "已经找到", "不符合要求", "暂不匹配", "祝您找到",
+      "祝你找到", "感谢你的关注", "感谢关注",
+    ],
+
+    DESKTOP_APP: {
+      BASE_URL: 'http://localhost:5001',
+      ENABLED: true,
+      CHECK_INTERVAL: 10000,
+    },
   };
 
   const getStoredJSON = (key, defaultValue) => {
@@ -193,6 +216,8 @@
       sentResumeHRs: new Set(getStoredJSON("sentResumeHRs", [])),
       sentImageResumeHRs: new Set(getStoredJSON("sentImageResumeHRs", [])),
       lastMessageTime: getStoredJSON("lastMessageTime", {}),
+      lastSentMsg: getStoredJSON("lastSentMsg", {}),
+      rejectedHRs: new Set(getStoredJSON("rejectedHRs", [])),
     },
 
     ai: {
@@ -207,6 +232,8 @@
     interviewInvites: 0,
     date: "",
   },
+
+  interviews: getStoredJSON("bossInterviews", []),
 
     settings: {
       useAutoSendResume: getStoredJSON("useAutoSendResume", false),
@@ -223,6 +250,8 @@
         model: localStorage.getItem("aiModel") || "lite",
         useCustomApi: localStorage.getItem("useCustomApi") === "true",
         conversationStrategy: localStorage.getItem("conversationStrategy") || "balanced",
+        enableCompanyCheck: localStorage.getItem("enableCompanyCheck") !== "false",
+        enableCompanyResearch: localStorage.getItem("enableCompanyResearch") === "true",
       },
       autoReply: getStoredJSON("autoReply", false),
       useAutoSendImageResume: getStoredJSON("useAutoSendImageResume", false),
@@ -240,9 +269,11 @@
       greetingsList: getStoredJSON("greetingsList", [
 
       ]),
+      resumes: getStoredJSON("bossResumes", []),
     },
 
     customGreeting: null,
+    lastJdText: null,
 
     comments: {
       currentCompanyName: "",
@@ -250,6 +281,11 @@
       isLoading: false,
       isCommentMode: false,
     },
+
+    conversationMemory: {},
+
+    jobTracker: getStoredJSON("bossJobTracker", []),
+    analyticsEvents: getStoredJSON("bossAnalytics", []),
   };
 
   const elements = {
@@ -569,6 +605,7 @@
           imageResumeData: state.settings.imageResumeData,
           imageResumes: state.settings.imageResumes || [],
           greetingsList: state.settings.greetingsList || [],
+          rejectedHRs: [...state.hrInteractions.rejectedHRs],
           theme: state.ui.theme,
           clickDelay: state.settings.actionDelays.click,
           includeKeywords: state.includeKeywords,
@@ -600,6 +637,10 @@
         const greetingsList = StorageManager.getParsedItem("greetingsList", []);
         if (Array.isArray(greetingsList))
           state.settings.greetingsList = greetingsList;
+
+        const rejectedHRs = StorageManager.getParsedItem("rejectedHRs", []);
+        if (Array.isArray(rejectedHRs))
+          state.hrInteractions.rejectedHRs = new Set(rejectedHRs);
 
         StorageManager.ensureStorageLimits();
       } catch (error) {
@@ -655,6 +696,151 @@
       if (typeof UI !== "undefined" && UI.updateStatsDisplay) {
         UI.updateStatsDisplay();
       }
+    },
+  };
+
+  const InterviewManager = {
+    KEY: "bossInterviews",
+
+    add(company, position, time, location, notes) {
+      const interview = {
+        id: Date.now().toString(),
+        company: company || "未知公司",
+        position: position || "未知岗位",
+        time: time || "待确认",
+        location: location || "待确认",
+        notes: notes || "",
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      };
+      state.interviews.push(interview);
+      this.save();
+      if (typeof UI !== "undefined" && UI.updateStatsDisplay) {
+        UI.updateStatsDisplay();
+      }
+      return interview;
+    },
+
+    save() {
+      localStorage.setItem(this.KEY, JSON.stringify(state.interviews));
+    },
+
+    remove(id) {
+      state.interviews = state.interviews.filter(i => i.id !== id);
+      this.save();
+    },
+
+    getPending() {
+      return state.interviews.filter(i => i.status === "pending");
+    },
+  };
+
+  const ReportManager = {
+    getWeeklyReport() {
+      const stats = state.stats;
+      const interviews = state.interviews.filter(i => {
+        const d = new Date(i.createdAt);
+        const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        return d.getTime() > weekAgo;
+      });
+      const hrReplyRate = stats.greetsSent > 0 ? ((stats.hrReplies / stats.greetsSent) * 100).toFixed(1) : "0";
+      return `📊 本周投递周报（${StatsManager.getToday()}）
+━━━━━━━━━━━━━
+👋 打招呼：${stats.greetsSent} 次
+💬 HR回复：${stats.hrReplies} 次（回复率 ${hrReplyRate}%）
+🎯 面试邀约：${stats.interviewInvites} 个
+📅 待面试：${interviews.length} 家
+━━━━━━━━━━━━━
+小胡版AI-boss海投助手 · 自动生成`;
+    },
+  };
+
+  const JobTracker = {
+    KEY: "bossJobTracker",
+
+    add(job) {
+      const exists = state.jobTracker.find(j => j.companyName === job.companyName && j.jobName === job.jobName);
+      if (exists) {
+        exists.matchScore = job.matchScore || exists.matchScore;
+        exists.matchLevel = job.matchLevel || exists.matchLevel;
+        exists.matchReasons = job.matchReasons || exists.matchReasons;
+        exists.matchedSkills = job.matchedSkills || exists.matchedSkills;
+        exists.jd = job.jd || exists.jd;
+        exists.updatedAt = Date.now();
+        if (job.companyInfo) exists.companyInfo = { ...exists.companyInfo, ...job.companyInfo };
+      } else {
+        state.jobTracker.push({
+          id: Date.now().toString(),
+          companyName: job.companyName || "未知",
+          jobName: job.jobName || "未知",
+          salary: job.salary || "",
+          location: job.location || "",
+          status: "interested",
+          matchScore: job.matchScore || 0,
+          matchLevel: job.matchLevel || "未评估",
+          matchReasons: job.matchReasons || [],
+          matchedSkills: job.matchedSkills || [],
+          companyInfo: job.companyInfo || {},
+          jd: job.jd || "",
+          collectedAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+      this.save();
+    },
+
+    updateStatus(companyName, jobName, status) {
+      const job = state.jobTracker.find(j => j.companyName === companyName && j.jobName === jobName);
+      if (!job) return;
+      job.status = status;
+      job.updatedAt = Date.now();
+      this.save();
+      if (typeof UI !== "undefined" && UI.updateDashboard) UI.updateDashboard();
+    },
+
+    getStats() {
+      const jobs = state.jobTracker;
+      return {
+        total: jobs.length,
+        interested: jobs.filter(j => j.status === "interested").length,
+        applied: jobs.filter(j => j.status === "applied").length,
+        interviewing: jobs.filter(j => j.status === "interviewing").length,
+        rejected: jobs.filter(j => j.status === "rejected").length,
+        highMatch: jobs.filter(j => j.matchScore >= 7).length,
+      };
+    },
+
+    findByCompany(companyName) {
+      return state.jobTracker.filter(j => j.companyName && j.companyName.includes(companyName));
+    },
+
+    save() {
+      localStorage.setItem(this.KEY, JSON.stringify(state.jobTracker));
+    },
+  };
+
+  const Analytics = {
+    KEY: "bossAnalytics",
+    MAX: 500,
+    MAX_AGE: 7 * 24 * 60 * 60 * 1000,
+
+    track(eventType, page, metadata) {
+      if (!state.analyticsEvents) state.analyticsEvents = [];
+      state.analyticsEvents.push({
+        eventType, page: page || "", metadata: metadata || {}, clientTs: Date.now(),
+      });
+      // 清理
+      const cutoff = Date.now() - this.MAX_AGE;
+      state.analyticsEvents = state.analyticsEvents.filter(e => e.clientTs > cutoff).slice(-this.MAX);
+      this.save();
+      // 同步到桌面管家
+      if (typeof DesktopBridge !== 'undefined') {
+        DesktopBridge.trackEvent(eventType, metadata);
+      }
+    },
+
+    save() {
+      localStorage.setItem(this.KEY, JSON.stringify(state.analyticsEvents));
     },
   };
   class HRInteractionManager {
@@ -1522,6 +1708,21 @@
         saveSettings();
       });
 
+      // 自动拒绝岗位
+      const rejectRow = document.createElement("div");
+      rejectRow.style.cssText = "margin-bottom: 12px;";
+      const rejectCol = this._createInputControl(
+        "自动拒绝岗位包含：",
+        "communication-reject",
+        "如：主播,客服,保险"
+      );
+      elements.communicationRejectInput = rejectCol.querySelector("input");
+      elements.communicationRejectInput.addEventListener("input", (e) => {
+        settings.communicationRejectKeywords = e.target.value;
+        saveSettings();
+      });
+      rejectRow.append(rejectCol);
+
       elements.controlBtn = this._createTextButton(
         "开始智能聊天",
         "var(--primary-color)",
@@ -1530,7 +1731,7 @@
         }
       );
 
-      container.append(configRow, elements.controlBtn);
+      container.append(configRow, rejectRow, elements.controlBtn);
       return container;
     },
 
@@ -1735,8 +1936,44 @@
         statsContainer.appendChild(statEl);
       });
 
+      // 求职仪表盘
+      const dashboard = document.createElement("div");
+      dashboard.id = "boss-dashboard";
+      dashboard.style.cssText = "margin: 0 0 10px 0; padding: 8px 10px; background: var(--secondary-color); border-radius: 8px;";
+      dashboard.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--primary-color); margin-bottom: 4px;">📋 求职仪表盘</div><div id="dashboard-stats" style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; color: #666;"></div>';
+
+      // 面试日程卡片
+      const interviewCard = document.createElement("div");
+      interviewCard.id = "boss-interview-card";
+      interviewCard.style.cssText = "margin: 0 0 12px 0; padding: 8px 10px; background: var(--secondary-color); border-radius: 8px; display: none;";
+      interviewCard.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--primary-color); margin-bottom: 4px;">📅 待面试: <span id="interview-count">0</span> 家</div><div id="interview-list" style="font-size: 11px; color: #666;"></div>';
+
+      // 周报按钮
+      const reportBtn = document.createElement("button");
+      reportBtn.textContent = "📊 周报";
+      reportBtn.style.cssText = "width: 100%; padding: 6px; margin-bottom: 8px; border-radius: 6px; border: 1px solid #667eea; background: rgba(102,126,234,0.08); color: #667eea; cursor: pointer; font-size: 12px;";
+      reportBtn.addEventListener("click", () => {
+        const report = ReportManager.getWeeklyReport();
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:2147483647;display:flex;align-items:center;justify-content:center;";
+        const box = document.createElement("div");
+        box.style.cssText = "background:#fff;border-radius:12px;padding:20px;max-width:320px;width:90%;font-size:14px;line-height:1.8;white-space:pre-wrap;";
+        box.textContent = report;
+        const closeBtn = document.createElement("button");
+        closeBtn.textContent = "关闭";
+        closeBtn.style.cssText = "margin-top:12px;width:100%;padding:8px;border-radius:6px;border:none;background:#4285f4;color:#fff;cursor:pointer;font-size:14px;";
+        closeBtn.onclick = () => overlay.remove();
+        box.appendChild(closeBtn);
+        overlay.appendChild(box);
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        document.body.appendChild(overlay);
+      });
+
       footer.append(
         statsContainer,
+        dashboard,
+        interviewCard,
+        reportBtn,
         document.createTextNode("© 2026 小胡版AI-boss海投助手 · Based on Yangshengzhou's open source project · AGPL-3.0-or-later")
       );
       return footer;
@@ -1755,6 +1992,38 @@
           if (countEl) countEl.textContent = state.stats[key] || 0;
         }
       });
+      this.updateInterviewDisplay();
+      this.updateDashboard();
+    },
+
+    updateInterviewDisplay() {
+      const card = document.getElementById("boss-interview-card");
+      if (!card) return;
+      const pending = state.interviews.filter(i => i.status === "pending");
+      if (pending.length === 0) { card.style.display = "none"; return; }
+      card.style.display = "block";
+      document.getElementById("interview-count").textContent = pending.length;
+      const listEl = document.getElementById("interview-list");
+      listEl.innerHTML = pending.slice(0, 3).map(i =>
+        `<div style="margin:2px 0;">${i.company} · ${i.position} · ${i.time}</div>`
+      ).join("");
+      if (pending.length > 3) listEl.innerHTML += `<div>...还有 ${pending.length - 3} 家</div>`;
+    },
+
+    updateDashboard() {
+      const stats = JobTracker.getStats();
+      const container = document.getElementById("dashboard-stats");
+      if (!container) return;
+      const items = [
+        { label: "总岗位", value: stats.total },
+        { label: "高匹配", value: stats.highMatch },
+        { label: "已投递", value: stats.applied },
+        { label: "面试中", value: stats.interviewing },
+        { label: "已拒绝", value: stats.rejected },
+      ];
+      container.innerHTML = items.map(i =>
+        `<span style="background:#fff;border-radius:4px;padding:2px 6px;">${i.label} <b>${i.value}</b></span>`
+      ).join("");
     },
 
     _createTextButton(text, bgColor, onClick) {
@@ -2811,7 +3080,89 @@
         background: #f9fafb;
     `;
 
+    // 简历切换
+    const resumeSwitchContainer = document.createElement("div");
+    resumeSwitchContainer.style.cssText = "display: flex; gap: 8px; margin-bottom: 10px; align-items: center;";
+
+    const resumeSelect = document.createElement("select");
+    resumeSelect.id = "resume-select";
+    resumeSelect.style.cssText = "flex: 1; padding: 6px 8px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 13px;";
+
+    const loadResumeOptions = () => {
+      resumeSelect.innerHTML = '<option value="">-- 选择简历 --</option>';
+      const resumes = state.settings.resumes || [];
+      if (resumes.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "__current__";
+        opt.textContent = "默认简历";
+        resumeSelect.appendChild(opt);
+      } else {
+        resumes.forEach((r, i) => {
+          const opt = document.createElement("option");
+          opt.value = String(i);
+          opt.textContent = r.name || ("简历 " + (i + 1));
+          resumeSelect.appendChild(opt);
+        });
+      }
+    };
+    loadResumeOptions();
+
+    resumeSelect.addEventListener("change", () => {
+      const idx = resumeSelect.value;
+      if (idx === "__current__") return;
+      const resumes = state.settings.resumes || [];
+      const selected = resumes[parseInt(idx)];
+      if (selected) {
+        state.settings.resumeText = selected.text || "";
+        state.settings.resumeAnalysis = selected.analysis || "";
+        if (typeof setLargeItem === "function") {
+          setLargeItem("resumeText", selected.text || "");
+          setLargeItem("resumeAnalysis", selected.analysis || "");
+        }
+        resumeTextArea.value = selected.text || "";
+        analysisResultArea.value = selected.analysis || "";
+        showNotification(`已切换到: ${selected.name}`, "success");
+      }
+    });
+
+    const saveAsNewBtn = document.createElement("button");
+    saveAsNewBtn.textContent = "另存为";
+    saveAsNewBtn.style.cssText = "padding: 6px 10px; border-radius: 6px; border: 1px solid #667eea; background: rgba(102,126,234,0.1); color: #667eea; cursor: pointer; font-size: 12px; white-space: nowrap;";
+    saveAsNewBtn.addEventListener("click", () => {
+      const name = prompt("给这份简历起个名字：", "新简历");
+      if (!name) return;
+      const text = resumeTextArea.value.trim();
+      const analysis = analysisResultArea.value.trim();
+      if (!text) { showNotification("简历内容为空", "error"); return; }
+      if (!state.settings.resumes) state.settings.resumes = [];
+      state.settings.resumes.push({ id: Date.now().toString(), name, text, analysis });
+      localStorage.setItem("bossResumes", JSON.stringify(state.settings.resumes));
+      loadResumeOptions();
+      resumeSelect.value = String(state.settings.resumes.length - 1);
+      showNotification(`简历 "${name}" 已保存`, "success");
+    });
+
+    const deleteResumeBtn = document.createElement("button");
+    deleteResumeBtn.textContent = "删除";
+    deleteResumeBtn.style.cssText = "padding: 6px 10px; border-radius: 6px; border: 1px solid #ef4444; background: rgba(239,68,68,0.08); color: #ef4444; cursor: pointer; font-size: 12px; white-space: nowrap;";
+    deleteResumeBtn.addEventListener("click", () => {
+      const idx = parseInt(resumeSelect.value);
+      if (isNaN(idx) || !state.settings.resumes || !state.settings.resumes[idx]) {
+        showNotification("请先选择要删除的简历", "error"); return;
+      }
+      const name = state.settings.resumes[idx].name;
+      if (confirm(`确定删除简历 "${name}"？`)) {
+        state.settings.resumes.splice(idx, 1);
+        localStorage.setItem("bossResumes", JSON.stringify(state.settings.resumes));
+        loadResumeOptions();
+        showNotification("已删除", "success");
+      }
+    });
+
+    resumeSwitchContainer.append(resumeSelect, saveAsNewBtn, deleteResumeBtn);
+
     resumeUploadContainer.append(
+      resumeSwitchContainer,
       fileUploadArea,
       fileInput,
       pasteHint,
@@ -3444,9 +3795,51 @@
     statusSelect.append(statusHeader, statusOptions);
     recruiterStatusSetting.append(statusSelect);
 
+    // 公司背景评估开关
+    const companyCheckSettingResult = createSettingItem(
+      "公司背景评估",
+      "AI分析岗位JD判断岗位靠谱度，1-6分自动拒绝（基于岗位JD内容评估）",
+      () => document.querySelector("#toggle-company-check input")
+    );
+    const companyCheckSetting = companyCheckSettingResult.settingItem;
+    const companyCheckDesc = companyCheckSettingResult.descriptionContainer;
+
+    const companyCheckToggle = createToggleSwitch(
+      "company-check",
+      settings.ai.enableCompanyCheck !== false,
+      (checked) => {
+        settings.ai.enableCompanyCheck = checked;
+        state.settings.ai.enableCompanyCheck = checked;
+        localStorage.setItem("enableCompanyCheck", checked);
+      }
+    );
+    companyCheckDesc.append(companyCheckToggle);
+
+    // 企业背景调查开关
+    const companyResearchSettingResult = createSettingItem(
+      "企业背景调查",
+      "AI基于训练数据评估公司背景（规模、口碑、负面新闻、劳动纠纷），与JD评估合并为一次API调用",
+      () => document.querySelector("#toggle-company-research input")
+    );
+    const companyResearchSetting = companyResearchSettingResult.settingItem;
+    const companyResearchDesc = companyResearchSettingResult.descriptionContainer;
+
+    const companyResearchToggle = createToggleSwitch(
+      "company-research",
+      settings.ai.enableCompanyResearch === true,
+      (checked) => {
+        settings.ai.enableCompanyResearch = checked;
+        state.settings.ai.enableCompanyResearch = checked;
+        localStorage.setItem("enableCompanyResearch", checked);
+      }
+    );
+    companyResearchDesc.append(companyResearchToggle);
+
     advancedSettingsPanel.append(
       autoReplySetting,
       autoSendResumeSetting,
+      companyCheckSetting,
+      companyResearchSetting,
       excludeHeadhuntersSetting,
       imageResumeSetting,
       recruiterStatusSetting
@@ -4404,6 +4797,7 @@
     lastProcessedMessage: null,
     processingMessage: false,
     currentMonitoredHR: null,
+    loopRunning: false,
 
     domCache: {},
 
@@ -4426,6 +4820,10 @@
     },
 
     async startProcessing() {
+      if (this.loopRunning) { this.log("处理循环已在运行中，跳过重复启动"); return; }
+      this.loopRunning = true;
+      Analytics.track("processing_start", location.pathname.includes("/chat") ? "chat" : "jobs", { mode: location.pathname.includes("/chat") ? settings.communicationMode : "auto" });
+
       if (location.pathname.includes("/jobs")) await this.autoScrollJobList();
 
       while (state.isRunning) {
@@ -4443,6 +4841,7 @@
         }
         await this.delay(this.getRandomInterval());
       }
+      this.loopRunning = false;
     },
 
     async processNewMessagesOnly() {
@@ -4491,28 +4890,36 @@
       }
 
       // 检查关键词过滤
-      if (
-        settings.communicationIncludeKeywords &&
-        settings.communicationIncludeKeywords.trim()
-      ) {
+      const hasIncludeKeywords = settings.communicationIncludeKeywords && settings.communicationIncludeKeywords.trim();
+      const hasRejectKeywords = settings.communicationRejectKeywords && settings.communicationRejectKeywords.trim();
+
+      if (hasIncludeKeywords || hasRejectKeywords) {
         await this.simulateClick(latestChatLi.querySelector(".figure"));
         await this.delay(CONFIG.OPERATION_INTERVAL * 2);
 
         const positionName = this.getPositionName();
-        const includeKeywords = settings.communicationIncludeKeywords
-          .toLowerCase()
-          .split(/[,]/)
-          .map((kw) => kw.trim())
-          .filter((kw) => kw.length > 0);
-
         const positionNameLower = positionName.toLowerCase();
-        const isMatch = includeKeywords.some((keyword) =>
-          positionNameLower.includes(keyword)
-        );
 
-        if (!isMatch) {
-          this.log(`跳过岗位对话，不含关键词[${includeKeywords.join(", ")}]`);
-          return;
+        // 先检查拒绝关键词
+        if (hasRejectKeywords) {
+          const rejectKeywords = settings.communicationRejectKeywords
+            .toLowerCase().split(/[,]/).map(kw => kw.trim()).filter(kw => kw.length > 0);
+          const isReject = rejectKeywords.some(kw => positionNameLower.includes(kw));
+          if (isReject) {
+            this.log(`自动拒绝岗位，含拒绝关键词[${rejectKeywords.join(", ")}]`);
+            return;
+          }
+        }
+
+        // 再检查包含关键词
+        if (hasIncludeKeywords) {
+          const includeKeywords = settings.communicationIncludeKeywords
+            .toLowerCase().split(/[,]/).map(kw => kw.trim()).filter(kw => kw.length > 0);
+          const isMatch = includeKeywords.some(kw => positionNameLower.includes(kw));
+          if (!isMatch) {
+            this.log(`跳过岗位对话，不含关键词[${includeKeywords.join(", ")}]`);
+            return;
+          }
         }
       }
 
@@ -4650,6 +5057,11 @@
         if (shouldReply) {
           this.log(`[${i + 1}/${chatListItems.length}] 需要回复: ${hrKey}`);
 
+          // 立即标记为已处理，防止并发重复进入
+          state.hrInteractions.processedHRs.add(hrKey);
+          if (!state.hrInteractions.lastMessageTime) state.hrInteractions.lastMessageTime = {};
+          state.hrInteractions.lastMessageTime[hrKey] = Date.now();
+
           // 点击整个chatItem进入聊天窗口
           this.log(`点击 ${hrKey} 的聊天窗口...`);
           await this.simulateClick(chatItem);
@@ -4740,12 +5152,41 @@
       await this.delay(500);
     },
 
+    isRejectedMessage(message) {
+      if (!message) return false;
+      return CONFIG.REJECTION_KEYWORDS.some(kw => message.includes(kw));
+    },
+
+    addToBlacklist(hrKey) {
+      state.hrInteractions.rejectedHRs.add(hrKey);
+      StatePersistence.saveState();
+      this.log(`已加入不再回复列表: ${hrKey}`);
+    },
+
     async shouldReplyToChat(chatItem, hrKey, lastMessage) {
+      // 黑名单检查：已被拒绝的HR不再自动回复
+      if (state.hrInteractions.rejectedHRs.has(hrKey)) {
+        return false;
+      }
+
       // 检查是否已经处理过这个HR（5分钟内不再处理）
       if (state.hrInteractions.processedHRs.has(hrKey)) {
         const lastProcessed = state.hrInteractions.lastMessageTime?.[hrKey] || 0;
         const now = Date.now();
         if (now - lastProcessed < 5 * 60 * 1000) {
+          return false;
+        }
+        // 冷却过后也检查：最后一条消息是否是脚本自己发的
+        const lastSent = state.hrInteractions.lastSentMsg?.[hrKey];
+        if (lastSent && lastMessage && (
+          lastSent.includes(lastMessage) || lastMessage.includes(lastSent) ||
+          lastSent.substring(0, 10) === lastMessage.substring(0, 10)
+        )) {
+          return false;
+        }
+        // 侧边栏显示系统消息（简历/文件/交换等），说明脚本刚操作过，跳过
+        const systemIndicators = ["附件简历", "简历请求", "[文件]", "[图片]", "交换手机号", "交换微信", "请求已发送"];
+        if (lastSent && lastMessage && systemIndicators.some(ind => lastMessage.includes(ind))) {
           return false;
         }
       }
@@ -4797,6 +5238,7 @@
 
     async handleSingleChat(hrKey, positionName) {
       try {
+        this.currentMonitoredHR = hrKey;
         // 获取最后一条HR消息
         const lastMessage = await this.getLastFriendMessageText();
         if (!lastMessage) {
@@ -4806,11 +5248,83 @@
 
         this.log(`${hrKey} 的最后消息: ${lastMessage.slice(0, 30)}...`);
 
+        // 拒绝关键词检测：HR说了拒绝的话，加入黑名单不再回复
+        if (this.isRejectedMessage(lastMessage)) {
+          this.log(`${hrKey}: 检测到拒绝关键词，加入不再回复列表`);
+          this.addToBlacklist(hrKey);
+          return;
+        }
+
         // 检查是否已经回复过这条消息
         const messageKey = `${hrKey}-${this.cleanMessage(lastMessage)}`;
         if (this.lastProcessedMessage === messageKey) {
           this.log(`${hrKey}: 已回复过此消息`);
           return;
+        }
+
+        // 检查是否用户已经手动回复过（避免重复回复）
+        const allChatTexts = Array.from(document.querySelectorAll(".text p span, .text span"))
+          .filter(el => !el.closest(".friend-content") && !el.closest(".last-msg"))
+          .map(el => el.textContent.trim())
+          .filter(t => t && t.length > 1);
+        // 检查侧边栏预览：如果用户从其他设备手动回复了，侧边栏会显示用户的回复
+        const selectedChat = document.querySelector(".friend-content.selected, .friend-content-warp:has(.friend-content.selected)");
+        if (selectedChat) {
+          const sidebarPreview = selectedChat.querySelector(".last-msg-text")?.textContent?.trim() || "";
+          if (sidebarPreview && sidebarPreview !== lastMessage && sidebarPreview.length > 1) {
+            const isQuestion = sidebarPreview.includes("?") || sidebarPreview.includes("？") || sidebarPreview.includes("吗") || sidebarPreview.includes("呢");
+            if (!isQuestion) {
+              this.log(`${hrKey}: 侧边栏显示用户已回复("${sidebarPreview.substring(0,15)}...")，跳过`);
+              return;
+            }
+          }
+        }
+
+        // 检查聊天区最后一条消息是否为用户手动回复
+        if (allChatTexts.length >= 2) {
+          const lastText = allChatTexts[allChatTexts.length - 1];
+          const isQuestion = lastText.includes("?") || lastText.includes("？") || lastText.includes("吗") || lastText.includes("呢");
+          if (!isQuestion && lastText !== lastMessage) {
+            this.log(`${hrKey}: 最后一条消息非HR提问，用户可能已手动回复，跳过`);
+            return;
+          }
+        }
+
+        // 公司背景评估
+        const companyName = await this.getCurrentHRCompany();
+        const currentPosName = positionName || this.getPositionName() || "";
+        const evaluation = await this.evaluateJob(companyName || "", currentPosName);
+
+        if (evaluation && evaluation.score <= CONFIG.COMPANY_CHECK.REJECT_THRESHOLD) {
+          this.log(`⚠️ ${companyName} 评估 ${evaluation.score}/10 分，不合格: ${evaluation.comment}`);
+          const rejectionReply = await this.generateRejectionReply(companyName || "该公司", evaluation.score, evaluation.comment);
+          if (rejectionReply) {
+            const inputBox = await this.waitForElement("#chat-input");
+            if (inputBox) {
+              inputBox.textContent = "";
+              inputBox.focus();
+              document.execCommand("insertText", false, rejectionReply);
+              await this.delay(500);
+              const sendButton = document.querySelector(".btn-send");
+              if (sendButton) await this.simulateClick(sendButton);
+              this.log(`已发送拒绝回复: ${rejectionReply}`);
+              return;
+            }
+          }
+        } else if (evaluation) {
+          this.log(`✅ ${companyName} 评估 ${evaluation.score}/10 分，合格: ${evaluation.comment}`);
+        }
+
+        // 更新岗位追踪状态
+        const comp = companyName || "未知";
+        const pos = currentPosName || "";
+        if (comp !== "未知") {
+          const phase = detectPhase(lastMessage || "");
+          if (phase === PHASES.INTERVIEW) JobTracker.updateStatus(comp, pos, "interviewing");
+          if (evaluation && evaluation.score <= CONFIG.COMPANY_CHECK.REJECT_THRESHOLD) JobTracker.updateStatus(comp, pos, "rejected");
+          if (evaluation) {
+            JobTracker.add({ companyName: comp, jobName: pos, matchScore: evaluation.score, matchLevel: evaluation.score >= 7 ? "高匹配" : "低匹配", matchReasons: [evaluation.comment] });
+          }
         }
 
         // 生成个性化回复
@@ -4848,6 +5362,8 @@
             state.hrInteractions.lastMessageTime = {};
           }
           state.hrInteractions.lastMessageTime[hrKey] = Date.now();
+          if (!state.hrInteractions.lastSentMsg) state.hrInteractions.lastSentMsg = {};
+          state.hrInteractions.lastSentMsg[hrKey] = replyText;
           StatePersistence.saveState();
         }
 
@@ -4857,6 +5373,9 @@
           const sent = await HRInteractionManager.sendResume();
           if (sent) {
             this.log(`已向 ${hrKey} 发送简历`);
+            if (!state.hrInteractions.lastSentMsg) state.hrInteractions.lastSentMsg = {};
+            state.hrInteractions.lastSentMsg[hrKey] = (state.hrInteractions.lastSentMsg[hrKey] || "") + "[附件简历]";
+            StatePersistence.saveState();
           }
         }
 
@@ -4990,14 +5509,16 @@
       await this.delay(this.getRandomInterval());
 
       state.customGreeting = null;
+      state.lastJdText = null;
       const jdText = this.extractJobDetail();
-      if (jdText && state.settings.resumeText) {
-        this.log("正在生成针对此岗位的定制化打招呼...");
+      if (jdText) state.lastJdText = jdText;
+      if (jdText) {
         const customGreeting = await this.generateCustomGreeting(jdText);
         if (customGreeting) {
           state.customGreeting = customGreeting;
-          this.log(`已生成定制化打招呼: ${customGreeting.substring(0, 30)}...`);
         }
+      } else {
+        this.log("📋 此岗位无 JD 内容，将使用预设固定招呼语");
       }
 
       let activeTime = "未知";
@@ -5035,6 +5556,32 @@
         const btnText = chatBtn.textContent.trim();
         if (btnText === "立即沟通") {
           chatBtn.click();
+          const jobName = currentCard.querySelector(".job-name")?.textContent?.trim() || "";
+          const companyName = currentCard.querySelector(".company-name")?.textContent?.trim() || "";
+          const salary = currentCard.querySelector(".salary")?.textContent?.trim() || "";
+          const location = currentCard.querySelector(".job-area")?.textContent?.trim() || "";
+          if (companyName && jobName) {
+            JobTracker.add({ companyName, jobName, salary, location, status: "applied" });
+            if (state.lastJdText) {
+              JobTracker.add({ companyName, jobName, jd: state.lastJdText });
+            }
+            // 同步到桌面管家
+            if (typeof DesktopBridge !== 'undefined') {
+              const jobId = currentCard.getAttribute('data-jobid') || currentCard.querySelector('[data-jobid]')?.getAttribute('data-jobid') || '';
+              DesktopBridge.collectJob({
+                jobId: jobId,
+                companyName: companyName,
+                jobName: jobName,
+                salary: salary,
+                location: location,
+                jd: state.lastJdText || '',
+                status: 'applied',
+                collectedAt: Date.now(),
+                sourceUrl: window.location.href,
+              });
+            }
+          }
+          Analytics.track("job_apply", "jobs", { company: companyName, job: jobName });
           await this.handleGreetingModal();
         }
       }
@@ -5078,32 +5625,34 @@
         this.messageObserver = null;
       }
 
-      if (
-        settings.communicationIncludeKeywords &&
-        settings.communicationIncludeKeywords.trim()
-      ) {
+      const hasIncludeKeywords2 = settings.communicationIncludeKeywords && settings.communicationIncludeKeywords.trim();
+      const hasRejectKeywords2 = settings.communicationRejectKeywords && settings.communicationRejectKeywords.trim();
+
+      if (hasIncludeKeywords2 || hasRejectKeywords2) {
         await this.simulateClick(latestChatLi.querySelector(".figure"));
         await this.delay(CONFIG.OPERATION_INTERVAL * 2);
 
         const positionName = this.getPositionName();
-        const includeKeywords = settings.communicationIncludeKeywords
-          .toLowerCase()
-          .split(/[，,]/)
-          .map((kw) => kw.trim())
-          .filter((kw) => kw.length > 0);
-
         const positionNameLower = positionName.toLowerCase();
-        const isMatch = includeKeywords.some((keyword) =>
-          positionNameLower.includes(keyword)
-        );
 
-        if (!isMatch) {
-          this.log(`跳过岗位对话，不含关键词[${includeKeywords.join(", ")}]`);
-
-          if (settings.communicationMode === "auto") {
-            await this.scrollUserList();
+        if (hasRejectKeywords2) {
+          const rejectKeywords = settings.communicationRejectKeywords
+            .toLowerCase().split(/[,]/).map(kw => kw.trim()).filter(kw => kw.length > 0);
+          if (rejectKeywords.some(kw => positionNameLower.includes(kw))) {
+            this.log(`自动拒绝岗位，含拒绝关键词[${rejectKeywords.join(", ")}]`);
+            if (settings.communicationMode === "auto") await this.scrollUserList();
+            return;
           }
-          return;
+        }
+
+        if (hasIncludeKeywords2) {
+          const includeKeywords = settings.communicationIncludeKeywords
+            .toLowerCase().split(/[，,]/).map(kw => kw.trim()).filter(kw => kw.length > 0);
+          if (!includeKeywords.some(kw => positionNameLower.includes(kw))) {
+            this.log(`跳过岗位对话，不含关键词[${includeKeywords.join(", ")}]`);
+            if (settings.communicationMode === "auto") await this.scrollUserList();
+            return;
+          }
         }
       }
 
@@ -5233,6 +5782,14 @@
 
         if (cleanedMessage === this.lastProcessedMessage) return;
 
+        // 拒绝关键词检测：HR说了拒绝的话，加入黑名单不再回复
+        if (this.isRejectedMessage(cleanedMessage)) {
+          this.log(`${hrKey}: 检测到拒绝关键词，加入不再回复列表`);
+          this.addToBlacklist(hrKey);
+          this.processingMessage = false;
+          return;
+        }
+
         this.lastProcessedMessage = cleanedMessage;
 
         StatsManager.increment("hrReplies");
@@ -5240,6 +5797,9 @@
         const interviewKeywords = ["面试", "聊聊", "见一面", "面谈", "过来面试", "来公司"];
         if (interviewKeywords.some(kw => cleanedMessage.includes(kw))) {
           StatsManager.increment("interviewInvites");
+          const company = await this.getCurrentHRCompany();
+          const pos = this.getPositionName() || "";
+          InterviewManager.add(company, pos, "待确认", "待确认", "");
         }
         this.log(`已同意交换，对方: ${lastMessage}`);
 
@@ -5377,7 +5937,26 @@
       }
     },
 
+    async _requestAiThroughDesktop(message) {
+      const cleanReply = (text) => text.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\n+/g, ' ').trim();
+      try {
+        if (typeof DesktopBridge !== 'undefined' && await DesktopBridge.isAvailable()) {
+          const data = await DesktopBridge.aiProxy([{ role: "user", content: message }]);
+          if (data && data.choices && data.choices[0] && data.choices[0].message) {
+            return cleanReply(data.choices[0].message.content);
+          }
+        }
+      } catch (e) {
+        this.log("桌面代理失败: " + e.message + "，回退直连");
+      }
+      return null;
+    },
+
     async _requestAiOnce(message) {
+      // 优先尝试桌面代理
+      const desktopResult = await this._requestAiThroughDesktop(message);
+      if (desktopResult !== null) return desktopResult;
+
       // 获取用户自定义配置
       const customApiKey = localStorage.getItem("aiApiKey");
       const customApiUrl = localStorage.getItem("aiApiUrl");
@@ -5389,12 +5968,12 @@
       const apiUrl = customApiUrl;
       const model = customModel;
       // 默认AI角色设定
-      const defaultSystemRole = "你是求职的应届生正在面对HR，回复需满足：20字内，编造专业对口/实习经验/证书任一岗位优势；被问个人信息或岗位条件，直接配合提供合理数据；全程积极真诚无拒绝言辞。";
+      const defaultSystemRole = "你是一个真实的求职者，正在BOSS直聘上跟HR微信式聊天。你的原则：先了解清楚公司待遇、岗位情况、团队环境，评估值不值得去，再决定是否约面试。不要一上来就答应面试。回复要求：短句口语化，像真人打字聊天，不要书面语，不要背简历，不要用\"我具备\"\"我熟练掌握\"这种表达。每次回复2-3句话，语言随意自然。";
       const systemRole = customRole || defaultSystemRole;
 
       // 检查是否配置了AI
       if (!authToken || !apiUrl || !model) {
-        this.log("⚠️ 未配置AI API，请先点击AI配置按钮设置API Key");
+        this.log("⚠️ 未配置AI API，请先点击AI配置按钮设置API Key，或启动桌面管家");
         return "您好，我对这个岗位很感兴趣，希望能有机会进一步沟通。";
       }
 
@@ -5406,7 +5985,7 @@
         ],
         max_tokens: 512
       };
-      
+
       // 只有非硅基流动API才添加system role和额外参数
       // 硅基流动的某些模型可能不支持system role
       if (!apiUrl.includes("siliconflow.cn")) {
@@ -5431,9 +6010,11 @@
             try {
               const result = JSON.parse(response.responseText);
               // 处理不同API的响应格式
+              const cleanReply = (text) => text.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\n+/g, ' ').trim();
+
               if (result.choices && result.choices[0] && result.choices[0].message) {
                 // OpenAI格式
-                resolve(result.choices[0].message.content.trim());
+                resolve(cleanReply(result.choices[0].message.content));
               } else if (result.code !== undefined && result.code !== 0) {
                 // 讯飞格式错误
                 throw new Error(
@@ -5441,7 +6022,7 @@
                 );
               } else if (result.choices && result.choices[0]) {
                 // 其他格式
-                resolve(result.choices[0].message?.content?.trim() || result.choices[0].text?.trim() || "");
+                resolve(cleanReply(result.choices[0].message?.content || result.choices[0].text || ""));
               } else {
                 throw new Error("无法解析API响应格式");
               }
@@ -5456,7 +6037,7 @@
               );
             }
           },
-          onerror: (error) => reject(new Error("网络请求失败: " + error)),
+          onerror: (error) => reject(new Error("API请求失败，请检查：1)网络连接 2)API Key是否正确 3)API地址是否可访问")),
         });
       });
     },
@@ -5913,6 +6494,26 @@
         }
         
         this.log("简历分析完成");
+
+        // 追加简历评分
+        const scorePrompt = `基于上述简历分析，请输出JSON格式的结构化评分（不要markdown代码块）：
+{
+  "overallScore": 1-10,
+  "educationScore": 1-10,
+  "skillsScore": 1-10,
+  "experienceScore": 1-10,
+  "careerProgressionScore": 1-10,
+  "resumeQualityScore": 1-10
+}
+只输出JSON，不要其他内容。`;
+        try {
+          const scoreJson = await this.requestAi(scorePrompt);
+          const scores = JSON.parse(scoreJson.replace(/```json|```/g, "").trim());
+          state.resumeScores = scores;
+          localStorage.setItem("bossResumeScores", JSON.stringify(scores));
+          this.log(`简历评分: 综合${scores.overallScore}分`);
+        } catch (e) {}
+
         return analysis;
       } catch (error) {
         this.log(`简历分析失败: ${error.message}`);
@@ -5987,6 +6588,22 @@
 
         const prompt = buildPrompt(phase, hrMessage, positionName, resumeText, resumeAnalysis, strategy);
         const reply = await this.requestAi(prompt);
+        // 记录对话记忆
+        const hrKey = this.currentMonitoredHR || "";
+        if (hrKey) {
+          if (!state.conversationMemory[hrKey]) state.conversationMemory[hrKey] = { messages: [], lastUpdate: Date.now() };
+          const mem = state.conversationMemory[hrKey];
+          mem.messages.push({ role: "hr", text: hrMessage.substring(0, 100) });
+          mem.messages.push({ role: "me", text: reply.substring(0, 100) });
+          if (mem.messages.length > 6) mem.messages.splice(0, 2);
+          mem.lastUpdate = Date.now();
+          // 清理7天未活跃的
+          Object.keys(state.conversationMemory).forEach(k => {
+            if (Date.now() - state.conversationMemory[k].lastUpdate > 7 * 24 * 60 * 60 * 1000) {
+              delete state.conversationMemory[k];
+            }
+          });
+        }
         return reply;
       } catch (error) {
         this.log(`生成个性化回复失败: ${error.message}`);
@@ -6667,10 +7284,14 @@
     },
 
     extractJobDetail() {
+      // 优先：职位列表页右侧面板和聊天页的岗位信息
       const selectors = [
         ".job-sec-text", ".job-detail", ".detail-text", ".job-main",
         ".job_sec", "[class*='job-detail']", "[class*='job-sec']",
         ".job-detail-box", ".job-description",
+        ".position-info", ".job-info", ".position-desc",
+        "[class*='position-info']", "[class*='job-info']",
+        ".chat-job-info", ".chat-position-info",
       ];
       for (const sel of selectors) {
         const el = document.querySelector(sel);
@@ -6678,8 +7299,9 @@
           return el.textContent.trim();
         }
       }
-      const panel = document.querySelector(".job-detail-box, .job-box, [class*='detail']");
-      if (panel) return panel.textContent.trim();
+      // 回退：任何包含大量文本的detail/job/position面板
+      const panel = document.querySelector(".job-detail-box, .job-box, [class*='detail-panel'], [class*='position-panel']");
+      if (panel && panel.textContent.trim().length > 50) return panel.textContent.trim();
       return null;
     },
 
@@ -6687,29 +7309,159 @@
       if (!jdText || jdText.length < 20) return null;
       const resumeText = state.settings.resumeText || "";
       const resumeAnalysis = state.settings.resumeAnalysis || "";
-      if (!resumeText && !resumeAnalysis) return null;
+
+      // 优先走桌面端生成（带缓存 + 降级支持）
+      if (typeof DesktopBridge !== 'undefined') {
+        try {
+          const currentCard = state.jobList && state.jobList[state.currentIndex - 1];
+          const jobId = currentCard ? (currentCard.getAttribute('data-jobid') || currentCard.querySelector('[data-jobid]')?.getAttribute('data-jobid') || '') : '';
+          const companyName = currentCard ? (currentCard.querySelector('.company-name')?.textContent?.trim() || '') : '';
+          const jobName = currentCard ? (currentCard.querySelector('.job-name')?.textContent?.trim() || '') : '';
+
+          const result = await DesktopBridge.generateGreeting(jobId, jdText, resumeText, companyName, jobName);
+          if (result && result.greeting) {
+            if (result.cached) {
+              this.log('📝 使用已缓存的 JD 定制招呼语');
+            } else if (result.grade === 'full') {
+              this.log('📝 已生成 JD 定制招呼语（基于简历）');
+            } else {
+              this.log('📝 已生成 JD 简化招呼语（未上传简历，建议上传以获得更精准匹配）');
+            }
+            return result.greeting;
+          }
+        } catch (e) {
+          this.log('桌面端生成招呼语失败: ' + e.message + '，回退本地生成');
+        }
+      }
+
+      // 本地生成（无桌面端时）
+      if (!resumeText && !resumeAnalysis) {
+        this.log('⚠️ 未上传简历，跳过 JD 定制招呼语（安装桌面管家可支持无简历降级生成）');
+        return null;
+      }
 
       const truncatedResume = this.truncateResumeText(resumeText, 3000);
       const truncatedJd = jdText.length > 2000 ? jdText.substring(0, 2000) : jdText;
 
-      const prompt = `基于我的简历和这个岗位的JD，生成一段精准的求职打招呼语：
+      const prompt = `你是求职者本人，在BOSS直聘给HR发招呼语。
+【硬格式】1.开头前15字必须是"熟悉XXX、XXX"（填该岗位JD要求且你简历具备的核心技能1-2个）。2.紧接着"做过XXX"说明简历里与该岗位相关的具体项目/经历。3.全文80-120字，真诚自然。
+【严禁】任何注释、说明、引导语、括号备注、字数统计、"好的"、"以下是"。
 
-我的简历：${truncatedResume}
-简历分析：${resumeAnalysis || "暂无"}
-岗位JD：${truncatedJd}
+我的简历：
+${truncatedResume}
+${resumeAnalysis ? '简历分析：' + resumeAnalysis : ''}
 
-要求：
-1. 80-150字，一句话
-2. 突出简历与JD的匹配点（技能、经验、项目）
-3. 展示对岗位的理解和兴趣
-4. 语气真诚、自信、像真人
-5. 不要"您好"开头，直接说内容`;
+目标岗位JD：
+${truncatedJd}
+
+直接输出招呼语本身，不要任何多余内容。`;
 
       try {
         const reply = await this.requestAi(prompt);
-        if (reply && reply.length > 20) return reply.trim();
+        if (reply && reply.length > 10) {
+          // 清理 AI 废话前缀
+          let cleaned = reply.trim()
+            .replace(/^(好的|以下是[^。，]*?)[，,。]?\s*/i, '')
+            .replace(/^(招呼语|为您生成).*?[:：]\s*/i, '')
+            .replace(/<[^>]+>/g, '').replace(/`/g, '').replace(/\n+/g, ' ').trim();
+          if (cleaned.length > 10) {
+            this.log('📝 已生成 JD 定制招呼语（本地）');
+            return cleaned;
+          }
+        }
       } catch (e) {}
       return null;
+    },
+
+    async evaluateJob(companyName, positionName) {
+      if (!state.settings.ai.enableCompanyCheck) return null;
+
+      let jdText = state.lastJdText || "";
+      if (!jdText || jdText.length < 20) {
+        jdText = this.extractJobDetail() || "";
+        if (jdText) state.lastJdText = jdText;
+      }
+      const hasJd = jdText.length > 20;
+
+      const enableResearch = state.settings.ai.enableCompanyResearch && companyName && companyName.length > 0;
+
+      let prompt;
+      if (hasJd) {
+        const truncatedJd = jdText.length > 2000 ? jdText.substring(0, 2000) : jdText;
+        prompt = `请分析以下岗位，判断靠不靠谱。回答格式：分数|综合评价
+
+公司：${companyName || "未知"}
+岗位：${positionName || "未知"}
+JD内容：${truncatedJd}
+
+分析维度：
+- JD是否具体明确（职责清晰 vs 空话套话）
+- 薪资结构是否合理（透明固定 vs 模糊套路）
+- 福利待遇（五险一金是否齐全、单双休、加班暗示）
+- 任职要求是否合理（学历经验匹配度）
+- 公司描述是否正规
+${enableResearch ? `- 公司背景：请根据你的知识，判断"${companyName}"这家公司的规模、行业口碑、是否有负面新闻或劳动纠纷` : ""}
+
+减分项：
+- "吃苦耐劳"、"抗压能力强"暗示加班
+- 薪资结构复杂（层层嵌套）
+- "包吃住"但薪资偏低
+- 大小周/单休
+- 岗位职责空泛、大段复读
+${enableResearch ? '- 公司有劳动纠纷、欠薪、裁员等负面信息' : ''}
+
+加分项：
+- 五险一金齐全、双休、弹性工作
+- 薪资范围明确合理、职责具体
+- 有培训晋升体系
+${enableResearch ? '- 公司规模正规、行业口碑好、无负面新闻' : ''}
+
+评分：1-6分=不推荐, 7-8分=正常, 9-10分=优质
+
+请直接输出：分数|评价内容（30字内）`;
+      } else {
+        prompt = `请评估这个岗位的靠谱程度。回答格式：分数|综合评价
+
+公司：${companyName || "未知"}
+岗位：${positionName || "未知"}
+
+${enableResearch ? `【重要】无JD详情，请根据你对"${companyName}"这家公司的了解来评估（公司规模、口碑、负面新闻、劳动纠纷等）。如果完全不了解，给7分。` : "【注意】无JD信息时默认给7分，回复"7|无JD详情，默认通过"即可。"`}
+
+评分：1-6分=不推荐, 7-8分=正常, 9-10分=优质
+
+请直接输出：分数|评价内容（30字内）`;
+
+      }
+
+      try {
+        const reply = await this.requestAi(prompt);
+        const match = reply.match(/^(\d+)\s*[|｜]\s*(.+)/);
+        if (match) {
+          return { score: parseInt(match[1]), comment: match[2].trim() };
+        }
+        const scoreMatch = reply.match(/\d+/);
+        if (scoreMatch) {
+          return { score: parseInt(scoreMatch[0]), comment: reply.trim() };
+        }
+      } catch (e) {}
+      return { score: 7, comment: "评估失败，默认通过" };
+    },
+
+    async generateRejectionReply(companyName, score, comment) {
+      const prompt = `你是一位求职者，需要礼貌地拒绝一个岗位。请生成一段简短、礼貌的拒绝回复：
+公司：${companyName || "该公司"}
+评估分数：${score}/10分
+评估意见：${comment}
+
+要求：
+1. 30字以内，语气礼貌但不卑不亢
+2. 用"个人发展方向不太匹配"等中性理由
+3. 不要留下继续沟通的空间
+
+请直接输出拒绝回复内容。`;
+
+      const reply = await this.requestAi(prompt);
+      return reply;
     },
   };
   const PHASES = {
@@ -6724,20 +7476,32 @@
   const STRATEGIES = {
     aggressive: {
       label: "激进 · 主动出击",
-      description: "主动出击型：AI 会积极展示优势、适度包装经验、主动推进面试邀约，适合急需拿到 offer 的情况",
-      instruction: "主动推进对话、适度包装优势、对不确定的问题给出自信回答、主动引导到面试环节、给出有竞争力的薪资期望。",
+      description: "主动出击型：先快速问清待遇关键点（薪资、工作内容），满意后积极约面。适合急需 offer 的情况。",
+      instruction: "直接问、不绕弯，觉得条件差不多就推面试，不纠结细节。",
     },
     balanced: {
       label: "平衡 · 稳扎稳打",
-      description: "稳扎稳打型：AI 会如实展示能力、有技巧地回答问题、适时推动面试，适合大多数求职场景（默认）",
-      instruction: "基于简历真实信息、积极但有分寸、不回避问题但也不过度承诺、适时推动面试、给出合理薪资范围并表示可协商。",
+      description: "稳扎稳打型：先了解清楚岗位和公司情况，综合评估后再决定是否面试。适合大多数求职场景（默认）。",
+      instruction: "按正常节奏聊，了解充分后再评估，条件可以就接着聊。",
     },
     conservative: {
       label: "保守 · 谨慎稳妥",
-      description: "谨慎稳妥型：AI 会严格基于真实信息、不夸大不承诺、以真诚换取信任，适合对岗位匹配度有信心的场景",
-      instruction: "严格基于简历、对不确定的问题诚实回答'需要确认一下'、不主动推动但保持友好、尊重公司的薪资体系、以真诚换取信任。",
+      description: "谨慎稳妥型：严格筛选岗位质量，问清楚细节再考虑面试。只投真正匹配且有信心的。",
+      instruction: "多问、挑剔一点，对不合理条件直接表达疑虑，宁缺毋滥。",
     },
   };
+
+  // 共享的求职者必问清单——所有策略都会用，区别在时机和语气
+  const ASK_LIST = `【求职者必问清单】在对话中自然地穿插提问（每次最多问1-2个，不要审犯人），围绕以下方面：
+1. 工作内容：具体做什么、日常流程是怎样的？
+2. 新人期望：入职前3个月公司对我的期望是什么？
+3. 薪资结构：底薪+绩效比例、试用期薪资、提成/奖金怎么算？
+4. 团队情况：当前团队多少人、都是什么角色？
+5. 岗位状态：这是新增岗位还是替补离职？前任为什么走？
+6. 考核指标：岗位核心KPI或考核标准是什么？
+7. 公司发展：部门/公司的下一步规划是什么？
+
+注意：根据对话阶段选择最合适的1-2个问题自然穿插，不要全部列出来。`;
 
   function detectPhase(hrMessage) {
     if (!hrMessage || !hrMessage.trim()) {
@@ -6767,54 +7531,115 @@
   function buildPrompt(phase, hrMessage, positionName, resumeText, resumeAnalysis, strategy) {
     const truncatedResume = Core.truncateResumeText(resumeText, 3000);
     const strategyInstruction = STRATEGIES[strategy] ? STRATEGIES[strategy].instruction : STRATEGIES.balanced.instruction;
-    const strategyNote = `【对话策略】${strategyInstruction}`;
+    const strategyNote = `【对话策略】${strategyInstruction}\n${ASK_LIST}`;
+    const hrKeyFromState = (typeof Core !== "undefined" && Core.currentMonitoredHR) || "";
+    let conversationBlock = "";
+    if (hrKeyFromState && state.conversationMemory && state.conversationMemory[hrKeyFromState]) {
+      const mem = state.conversationMemory[hrKeyFromState];
+      const summary = mem.messages.map(m => `${m.role === "hr" ? "HR" : "我"}: ${m.text}`).join("\n");
+      conversationBlock = `【之前的对话】\n${summary}\n【当前】\n`;
+    }
     const resumeBlock = truncatedResume ? `你的简历信息：\n${truncatedResume}\n` : "";
     const analysisBlock = resumeAnalysis ? `简历分析：\n${resumeAnalysis}\n` : "";
     const positionBlock = positionName ? `应聘岗位：${positionName}\n` : "";
 
     const phasePrompts = {
-      [PHASES.GREETING]: `你是求职者，刚向HR投递了简历。请生成一条简洁的首次打招呼消息。
-要求：30-50字，展示核心优势，表达对岗位的兴趣，语气友好不卑不亢。
-${resumeBlock}${analysisBlock}${positionBlock}
-${strategyNote}
-请直接给出打招呼内容，不要加任何前缀。`,
+      [PHASES.GREETING]: `你是一个正在找工作的求职者，刚投了简历。用微信聊天的语气给HR发第一条消息。
 
-      [PHASES.SHOWCASE]: `你是求职者，HR要求你介绍自己或查看简历。
-请基于简历信息，用3-4句话展示：最匹配该岗位的技能、最亮眼的项目/工作经历、与岗位的契合点。
-${resumeBlock}${analysisBlock}${positionBlock}
-HR的消息："${hrMessage}"
-${strategyNote}
-要求：回复控制在60字以内，口语化，不要暴露你是AI。
-请直接给出回复内容，不要加任何前缀。`,
+你的简历：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+要求：
+- 20-40字，短句，像真人打字
+- 提一两个你简历里真正做过的、跟这个岗位有关系的点
+- 语气随意一点，像跟朋友说话
+- 不要"您好"开头，不要长篇大论
+- 不要列举技能，不要背诵简历
 
-      [PHASES.QANDA]: `你是求职者，HR在询问一些具体问题。请根据简历信息诚实回答。
-如果是关于离职原因：正面表达职业规划。如果是住址/到岗时间：表示便利/尽快。
-${resumeBlock}${positionBlock}
-HR的消息："${hrMessage}"
 ${strategyNote}
-要求：回复控制在50字以内，像真人聊天，不要暴露你是AI。
-请直接给出回复内容，不要加任何前缀。`,
+直接输出打招呼内容。`,
 
-      [PHASES.SALARY]: `你是求职者，HR在谈论薪资待遇。
-${resumeBlock}${positionBlock}
-HR的消息："${hrMessage}"
-${strategyNote}
-要求：回复控制在40字以内，专业且礼貌。
-请直接给出回复内容，不要加任何前缀。`,
+      [PHASES.SHOWCASE]: `你是一个求职者，HR想了解你。像微信聊天一样回复，不要写作文。
 
-      [PHASES.INTERVIEW]: `你是求职者，HR发出了面试邀约或面试意向。请积极确认，表示对面试机会的重视。
-同时确认：具体时间、面试形式（线上/线下）、需要准备什么材料。
-HR的消息："${hrMessage}"
-${strategyNote}
-要求：回复控制在50字以内，热情但不过度。
-请直接给出回复内容，不要加任何前缀。`,
+你的大概情况：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+HR刚说：${hrMessage}
 
-      [PHASES.GENERAL]: `你是求职者，正在与HR沟通。请根据以下信息回复HR的消息：
-${resumeBlock}${analysisBlock}${positionBlock}
-HR的消息："${hrMessage}"
+要求：
+- 2-3句话，不够50字最好
+- 挑简历里跟这岗位最沾边的一个经历/技能，用大白话说出来
+- 不要说"我具备"、"我熟练掌握"这种书面语
+- 适当反问HR一两个问题（显你在认真考虑这个岗位）
+- 像真人聊天，不要完美语法
+
 ${strategyNote}
-要求：回复控制在50字以内，自然口语化，不要暴露你是AI。
-请直接给出回复内容，不要加任何前缀。`,
+直接输出回复。`,
+
+      [PHASES.QANDA]: `你是一个求职者，HR在问你问题。像跟朋友聊天一样回答。
+
+你的情况：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+HR在问：${hrMessage}
+
+要求：
+- 别急着亮底牌，先回答HR问的，顺便反问一个你关心的（比如工作内容、团队情况）
+- 实话实说，不知道就说"这个我得确认一下"
+- 语言随意，像微信聊天，不要书面语
+- 30字左右就够了
+
+${strategyNote}
+直接输出回复。`,
+
+      [PHASES.SALARY]: `你是一个求职者，HR在谈薪资了。按正常求职者的方式回复。
+
+你的大概情况：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+HR说：${hrMessage}
+
+要求：
+- 先听完HR说的，表示了解了
+- 如果你觉得还行就说还行，如果低了就委婉提一下
+- 可以问清楚薪资结构（底薪+绩效比例、试用期等）
+- 语气自然，像跟朋友聊钱一样正常，不卑不亢
+- 40字以内
+
+${strategyNote}
+直接输出回复。`,
+
+      [PHASES.INTERVIEW]: `你是一个求职者，HR想约你面试。
+
+HR说：${hrMessage}
+
+要求：
+- 表示感兴趣和感谢，但不要直接答应具体时间
+- 说需要先看一下最近的日程安排，回头跟HR确认具体时间
+- 可以顺便问面试形式（线上还是线下）、面试官是谁、大概聊多久
+- 给HR一个你会主动跟进的感觉，比如"我确认好时间马上跟你说"
+- 热情但不舔，像正常约见面一样
+- 不用写"我非常期待这个宝贵的机会"
+- 40字以内
+
+${strategyNote}
+直接输出回复。`,
+
+      [PHASES.GENERAL]: `你是一个求职者，跟HR在微信上聊天。
+
+你的情况：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+HR刚说：${hrMessage}
+
+要求：
+- 像真人聊天回复，简短自然
+- 不要背简历，不要列技能，不要说"我具备良好的"
+- 有来有往，可以反问HR了解岗位更多情况
+- 40字以内
+
+${strategyNote}
+直接输出回复。`,
     };
 
     return phasePrompts[phase] || phasePrompts[PHASES.GENERAL];
@@ -7554,6 +8379,109 @@ ${strategyNote}
   function getToday() {
     return new Date().toISOString().split("T")[0];
   }
+  /**
+   * DesktopBridge — BOSS 海投桌面管家桥接层
+   * 将 AI 请求、岗位数据、埋点事件转发到本地桌面应用
+   */
+  const DesktopBridge = {
+    _available: false,
+    _lastCheck: 0,
+    _baseUrl: CONFIG.DESKTOP_APP.BASE_URL,
+
+    async isAvailable() {
+      const now = Date.now();
+      if (now - this._lastCheck < CONFIG.DESKTOP_APP.CHECK_INTERVAL) {
+        return this._available;
+      }
+      this._lastCheck = now;
+      try {
+        const resp = await fetch(this._baseUrl + '/api/health', { signal: AbortSignal.timeout(2000) });
+        this._available = resp.ok;
+        if (this._available && !this._wasAvailable) {
+          typeof Core !== 'undefined' && Core.log('🔗 桌面管家已连接');
+        }
+        this._wasAvailable = this._available;
+      } catch (e) {
+        this._available = false;
+      }
+      return this._available;
+    },
+
+    async aiProxy(messages, options = {}) {
+      const body = {
+        messages: messages,
+        temperature: options.temperature,
+        max_tokens: options.max_tokens,
+      };
+      if (options.model) body.model = options.model;
+
+      const resp = await fetch(this._baseUrl + '/api/ai/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120000),
+      });
+      const result = await resp.json();
+      if (!result.success) {
+        throw new Error(result.error || '桌面 AI 代理返回错误');
+      }
+      return result.data;
+    },
+
+    async collectJob(jobData) {
+      if (!await this.isAvailable()) return;
+      try {
+        fetch(this._baseUrl + '/api/jobs/collect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(jobData),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      } catch (e) {}
+    },
+
+    async trackEvent(eventType, metadata = {}) {
+      if (!await this.isAvailable()) return;
+      try {
+        fetch(this._baseUrl + '/api/analytics/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([{
+            event_type: eventType,
+            category: 'script',
+            page: location.pathname,
+            metadata: metadata,
+            session_id: 'boss-js-script',
+            client_ts: Date.now(),
+          }]),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      } catch (e) {}
+    },
+
+    async generateGreeting(jobId, jdText, resumeText, companyName, jobName) {
+      if (!await this.isAvailable()) return null;
+      try {
+        const resp = await fetch(this._baseUrl + '/api/ai/generate-greeting', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            job_id: jobId || '',
+            jd_text: jdText || '',
+            resume_text: resumeText || '',
+            company_name: companyName || '',
+            job_name: jobName || '',
+          }),
+          signal: AbortSignal.timeout(35000),
+        });
+        const result = await resp.json();
+        if (result.success && result.data && result.data.greeting) {
+          return { greeting: result.data.greeting, cached: result.data.cached, grade: result.data.grade };
+        }
+      } catch (e) {}
+      return null;
+    },
+  };
   async function init() {
     try {
 
@@ -7568,6 +8496,9 @@ ${strategyNote}
       UI.init();
       StatsManager.load();
       UI.updateStatsDisplay();
+      UI.updateInterviewDisplay();
+      UI.updateDashboard();
+      Analytics.track("script_init", location.pathname.includes("/chat") ? "chat" : "jobs", {});
       document.body.style.position = "relative";
       const today = getToday();
       if (location.pathname.includes("/jobs")) {

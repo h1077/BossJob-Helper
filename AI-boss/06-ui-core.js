@@ -326,6 +326,21 @@
         saveSettings();
       });
 
+      // 自动拒绝岗位
+      const rejectRow = document.createElement("div");
+      rejectRow.style.cssText = "margin-bottom: 12px;";
+      const rejectCol = this._createInputControl(
+        "自动拒绝岗位包含：",
+        "communication-reject",
+        "如：主播,客服,保险"
+      );
+      elements.communicationRejectInput = rejectCol.querySelector("input");
+      elements.communicationRejectInput.addEventListener("input", (e) => {
+        settings.communicationRejectKeywords = e.target.value;
+        saveSettings();
+      });
+      rejectRow.append(rejectCol);
+
       elements.controlBtn = this._createTextButton(
         "开始智能聊天",
         "var(--primary-color)",
@@ -334,7 +349,7 @@
         }
       );
 
-      container.append(configRow, elements.controlBtn);
+      container.append(configRow, rejectRow, elements.controlBtn);
       return container;
     },
 
@@ -539,8 +554,44 @@
         statsContainer.appendChild(statEl);
       });
 
+      // 求职仪表盘
+      const dashboard = document.createElement("div");
+      dashboard.id = "boss-dashboard";
+      dashboard.style.cssText = "margin: 0 0 10px 0; padding: 8px 10px; background: var(--secondary-color); border-radius: 8px;";
+      dashboard.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--primary-color); margin-bottom: 4px;">📋 求职仪表盘</div><div id="dashboard-stats" style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; color: #666;"></div>';
+
+      // 面试日程卡片
+      const interviewCard = document.createElement("div");
+      interviewCard.id = "boss-interview-card";
+      interviewCard.style.cssText = "margin: 0 0 12px 0; padding: 8px 10px; background: var(--secondary-color); border-radius: 8px; display: none;";
+      interviewCard.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--primary-color); margin-bottom: 4px;">📅 待面试: <span id="interview-count">0</span> 家</div><div id="interview-list" style="font-size: 11px; color: #666;"></div>';
+
+      // 周报按钮
+      const reportBtn = document.createElement("button");
+      reportBtn.textContent = "📊 周报";
+      reportBtn.style.cssText = "width: 100%; padding: 6px; margin-bottom: 8px; border-radius: 6px; border: 1px solid #667eea; background: rgba(102,126,234,0.08); color: #667eea; cursor: pointer; font-size: 12px;";
+      reportBtn.addEventListener("click", () => {
+        const report = ReportManager.getWeeklyReport();
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:2147483647;display:flex;align-items:center;justify-content:center;";
+        const box = document.createElement("div");
+        box.style.cssText = "background:#fff;border-radius:12px;padding:20px;max-width:320px;width:90%;font-size:14px;line-height:1.8;white-space:pre-wrap;";
+        box.textContent = report;
+        const closeBtn = document.createElement("button");
+        closeBtn.textContent = "关闭";
+        closeBtn.style.cssText = "margin-top:12px;width:100%;padding:8px;border-radius:6px;border:none;background:#4285f4;color:#fff;cursor:pointer;font-size:14px;";
+        closeBtn.onclick = () => overlay.remove();
+        box.appendChild(closeBtn);
+        overlay.appendChild(box);
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        document.body.appendChild(overlay);
+      });
+
       footer.append(
         statsContainer,
+        dashboard,
+        interviewCard,
+        reportBtn,
         document.createTextNode("© 2026 小胡版AI-boss海投助手 · Based on Yangshengzhou's open source project · AGPL-3.0-or-later")
       );
       return footer;
@@ -559,6 +610,38 @@
           if (countEl) countEl.textContent = state.stats[key] || 0;
         }
       });
+      this.updateInterviewDisplay();
+      this.updateDashboard();
+    },
+
+    updateInterviewDisplay() {
+      const card = document.getElementById("boss-interview-card");
+      if (!card) return;
+      const pending = state.interviews.filter(i => i.status === "pending");
+      if (pending.length === 0) { card.style.display = "none"; return; }
+      card.style.display = "block";
+      document.getElementById("interview-count").textContent = pending.length;
+      const listEl = document.getElementById("interview-list");
+      listEl.innerHTML = pending.slice(0, 3).map(i =>
+        `<div style="margin:2px 0;">${i.company} · ${i.position} · ${i.time}</div>`
+      ).join("");
+      if (pending.length > 3) listEl.innerHTML += `<div>...还有 ${pending.length - 3} 家</div>`;
+    },
+
+    updateDashboard() {
+      const stats = JobTracker.getStats();
+      const container = document.getElementById("dashboard-stats");
+      if (!container) return;
+      const items = [
+        { label: "总岗位", value: stats.total },
+        { label: "高匹配", value: stats.highMatch },
+        { label: "已投递", value: stats.applied },
+        { label: "面试中", value: stats.interviewing },
+        { label: "已拒绝", value: stats.rejected },
+      ];
+      container.innerHTML = items.map(i =>
+        `<span style="background:#fff;border-radius:4px;padding:2px 6px;">${i.label} <b>${i.value}</b></span>`
+      ).join("");
     },
 
     _createTextButton(text, bgColor, onClick) {

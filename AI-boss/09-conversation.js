@@ -10,20 +10,32 @@
   const STRATEGIES = {
     aggressive: {
       label: "激进 · 主动出击",
-      description: "主动出击型：AI 会积极展示优势、适度包装经验、主动推进面试邀约，适合急需拿到 offer 的情况",
-      instruction: "主动推进对话、适度包装优势、对不确定的问题给出自信回答、主动引导到面试环节、给出有竞争力的薪资期望。",
+      description: "主动出击型：先快速问清待遇关键点（薪资、工作内容），满意后积极约面。适合急需 offer 的情况。",
+      instruction: "直接问、不绕弯，觉得条件差不多就推面试，不纠结细节。",
     },
     balanced: {
       label: "平衡 · 稳扎稳打",
-      description: "稳扎稳打型：AI 会如实展示能力、有技巧地回答问题、适时推动面试，适合大多数求职场景（默认）",
-      instruction: "基于简历真实信息、积极但有分寸、不回避问题但也不过度承诺、适时推动面试、给出合理薪资范围并表示可协商。",
+      description: "稳扎稳打型：先了解清楚岗位和公司情况，综合评估后再决定是否面试。适合大多数求职场景（默认）。",
+      instruction: "按正常节奏聊，了解充分后再评估，条件可以就接着聊。",
     },
     conservative: {
       label: "保守 · 谨慎稳妥",
-      description: "谨慎稳妥型：AI 会严格基于真实信息、不夸大不承诺、以真诚换取信任，适合对岗位匹配度有信心的场景",
-      instruction: "严格基于简历、对不确定的问题诚实回答'需要确认一下'、不主动推动但保持友好、尊重公司的薪资体系、以真诚换取信任。",
+      description: "谨慎稳妥型：严格筛选岗位质量，问清楚细节再考虑面试。只投真正匹配且有信心的。",
+      instruction: "多问、挑剔一点，对不合理条件直接表达疑虑，宁缺毋滥。",
     },
   };
+
+  // 共享的求职者必问清单——所有策略都会用，区别在时机和语气
+  const ASK_LIST = `【求职者必问清单】在对话中自然地穿插提问（每次最多问1-2个，不要审犯人），围绕以下方面：
+1. 工作内容：具体做什么、日常流程是怎样的？
+2. 新人期望：入职前3个月公司对我的期望是什么？
+3. 薪资结构：底薪+绩效比例、试用期薪资、提成/奖金怎么算？
+4. 团队情况：当前团队多少人、都是什么角色？
+5. 岗位状态：这是新增岗位还是替补离职？前任为什么走？
+6. 考核指标：岗位核心KPI或考核标准是什么？
+7. 公司发展：部门/公司的下一步规划是什么？
+
+注意：根据对话阶段选择最合适的1-2个问题自然穿插，不要全部列出来。`;
 
   function detectPhase(hrMessage) {
     if (!hrMessage || !hrMessage.trim()) {
@@ -53,54 +65,115 @@
   function buildPrompt(phase, hrMessage, positionName, resumeText, resumeAnalysis, strategy) {
     const truncatedResume = Core.truncateResumeText(resumeText, 3000);
     const strategyInstruction = STRATEGIES[strategy] ? STRATEGIES[strategy].instruction : STRATEGIES.balanced.instruction;
-    const strategyNote = `【对话策略】${strategyInstruction}`;
+    const strategyNote = `【对话策略】${strategyInstruction}\n${ASK_LIST}`;
+    const hrKeyFromState = (typeof Core !== "undefined" && Core.currentMonitoredHR) || "";
+    let conversationBlock = "";
+    if (hrKeyFromState && state.conversationMemory && state.conversationMemory[hrKeyFromState]) {
+      const mem = state.conversationMemory[hrKeyFromState];
+      const summary = mem.messages.map(m => `${m.role === "hr" ? "HR" : "我"}: ${m.text}`).join("\n");
+      conversationBlock = `【之前的对话】\n${summary}\n【当前】\n`;
+    }
     const resumeBlock = truncatedResume ? `你的简历信息：\n${truncatedResume}\n` : "";
     const analysisBlock = resumeAnalysis ? `简历分析：\n${resumeAnalysis}\n` : "";
     const positionBlock = positionName ? `应聘岗位：${positionName}\n` : "";
 
     const phasePrompts = {
-      [PHASES.GREETING]: `你是求职者，刚向HR投递了简历。请生成一条简洁的首次打招呼消息。
-要求：30-50字，展示核心优势，表达对岗位的兴趣，语气友好不卑不亢。
-${resumeBlock}${analysisBlock}${positionBlock}
-${strategyNote}
-请直接给出打招呼内容，不要加任何前缀。`,
+      [PHASES.GREETING]: `你是一个正在找工作的求职者，刚投了简历。用微信聊天的语气给HR发第一条消息。
 
-      [PHASES.SHOWCASE]: `你是求职者，HR要求你介绍自己或查看简历。
-请基于简历信息，用3-4句话展示：最匹配该岗位的技能、最亮眼的项目/工作经历、与岗位的契合点。
-${resumeBlock}${analysisBlock}${positionBlock}
-HR的消息："${hrMessage}"
-${strategyNote}
-要求：回复控制在60字以内，口语化，不要暴露你是AI。
-请直接给出回复内容，不要加任何前缀。`,
+你的简历：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+要求：
+- 20-40字，短句，像真人打字
+- 提一两个你简历里真正做过的、跟这个岗位有关系的点
+- 语气随意一点，像跟朋友说话
+- 不要"您好"开头，不要长篇大论
+- 不要列举技能，不要背诵简历
 
-      [PHASES.QANDA]: `你是求职者，HR在询问一些具体问题。请根据简历信息诚实回答。
-如果是关于离职原因：正面表达职业规划。如果是住址/到岗时间：表示便利/尽快。
-${resumeBlock}${positionBlock}
-HR的消息："${hrMessage}"
 ${strategyNote}
-要求：回复控制在50字以内，像真人聊天，不要暴露你是AI。
-请直接给出回复内容，不要加任何前缀。`,
+直接输出打招呼内容。`,
 
-      [PHASES.SALARY]: `你是求职者，HR在谈论薪资待遇。
-${resumeBlock}${positionBlock}
-HR的消息："${hrMessage}"
-${strategyNote}
-要求：回复控制在40字以内，专业且礼貌。
-请直接给出回复内容，不要加任何前缀。`,
+      [PHASES.SHOWCASE]: `你是一个求职者，HR想了解你。像微信聊天一样回复，不要写作文。
 
-      [PHASES.INTERVIEW]: `你是求职者，HR发出了面试邀约或面试意向。请积极确认，表示对面试机会的重视。
-同时确认：具体时间、面试形式（线上/线下）、需要准备什么材料。
-HR的消息："${hrMessage}"
-${strategyNote}
-要求：回复控制在50字以内，热情但不过度。
-请直接给出回复内容，不要加任何前缀。`,
+你的大概情况：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+HR刚说：${hrMessage}
 
-      [PHASES.GENERAL]: `你是求职者，正在与HR沟通。请根据以下信息回复HR的消息：
-${resumeBlock}${analysisBlock}${positionBlock}
-HR的消息："${hrMessage}"
+要求：
+- 2-3句话，不够50字最好
+- 挑简历里跟这岗位最沾边的一个经历/技能，用大白话说出来
+- 不要说"我具备"、"我熟练掌握"这种书面语
+- 适当反问HR一两个问题（显你在认真考虑这个岗位）
+- 像真人聊天，不要完美语法
+
 ${strategyNote}
-要求：回复控制在50字以内，自然口语化，不要暴露你是AI。
-请直接给出回复内容，不要加任何前缀。`,
+直接输出回复。`,
+
+      [PHASES.QANDA]: `你是一个求职者，HR在问你问题。像跟朋友聊天一样回答。
+
+你的情况：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+HR在问：${hrMessage}
+
+要求：
+- 别急着亮底牌，先回答HR问的，顺便反问一个你关心的（比如工作内容、团队情况）
+- 实话实说，不知道就说"这个我得确认一下"
+- 语言随意，像微信聊天，不要书面语
+- 30字左右就够了
+
+${strategyNote}
+直接输出回复。`,
+
+      [PHASES.SALARY]: `你是一个求职者，HR在谈薪资了。按正常求职者的方式回复。
+
+你的大概情况：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+HR说：${hrMessage}
+
+要求：
+- 先听完HR说的，表示了解了
+- 如果你觉得还行就说还行，如果低了就委婉提一下
+- 可以问清楚薪资结构（底薪+绩效比例、试用期等）
+- 语气自然，像跟朋友聊钱一样正常，不卑不亢
+- 40字以内
+
+${strategyNote}
+直接输出回复。`,
+
+      [PHASES.INTERVIEW]: `你是一个求职者，HR想约你面试。
+
+HR说：${hrMessage}
+
+要求：
+- 表示感兴趣和感谢，但不要直接答应具体时间
+- 说需要先看一下最近的日程安排，回头跟HR确认具体时间
+- 可以顺便问面试形式（线上还是线下）、面试官是谁、大概聊多久
+- 给HR一个你会主动跟进的感觉，比如"我确认好时间马上跟你说"
+- 热情但不舔，像正常约见面一样
+- 不用写"我非常期待这个宝贵的机会"
+- 40字以内
+
+${strategyNote}
+直接输出回复。`,
+
+      [PHASES.GENERAL]: `你是一个求职者，跟HR在微信上聊天。
+
+你的情况：${truncatedResume || "无"}
+${positionBlock}
+${conversationBlock}
+HR刚说：${hrMessage}
+
+要求：
+- 像真人聊天回复，简短自然
+- 不要背简历，不要列技能，不要说"我具备良好的"
+- 有来有往，可以反问HR了解岗位更多情况
+- 40字以内
+
+${strategyNote}
+直接输出回复。`,
     };
 
     return phasePrompts[phase] || phasePrompts[PHASES.GENERAL];

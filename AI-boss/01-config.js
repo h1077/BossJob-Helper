@@ -15,6 +15,8 @@
       AI_REPLY_COUNT: "aiReplyCount",
       LAST_AI_DATE: "lastAiDate",
       DAILY_STATS: "bossDailyStats",
+      JOB_TRACKER: "bossJobTracker",
+      ANALYTICS: "bossAnalytics",
     },
     STORAGE_LIMITS: {
       PROCESSED_HRS: 500,
@@ -53,10 +55,30 @@
       DESC_WEIGHT: 1,
     },
 
+    COMPANY_CHECK: {
+      REJECT_THRESHOLD: 6,
+    },
+
     PEAK_HOURS: [
       { start: 9, end: 11, label: "上午 9:00-11:00" },
       { start: 14, end: 17, label: "下午 14:00-17:00" },
-    ]
+    ],
+
+    REJECTION_KEYWORDS: [
+      "不合适", "不太符合", "不考虑", "抱歉", "遗憾",
+      "已招到", "招满了", "暂时不需要", "有更合适的人选",
+      "下次合作", "以后再说", "不需要了", "不太匹配",
+      "经验不符", "技能不匹配", "已停止招聘", "岗位关闭",
+      "已找到合适人选", "不录用", "暂时不招", "目前已招满",
+      "已经找到", "不符合要求", "暂不匹配", "祝您找到",
+      "祝你找到", "感谢你的关注", "感谢关注",
+    ],
+
+    DESKTOP_APP: {
+      BASE_URL: 'http://localhost:5001',
+      ENABLED: true,
+      CHECK_INTERVAL: 10000,
+    },
   };
 
   const getStoredJSON = (key, defaultValue) => {
