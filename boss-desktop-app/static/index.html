@@ -89,9 +89,26 @@
   <section class="page" id="page-settings">
     <h2 class="page-title">⚙️ AI 设置</h2>
     <div class="card settings-form">
-      <div class="form-group"><label>API 地址</label><input type="text" id="ai-api-url" placeholder="https://api.siliconflow.cn/v1/chat/completions"></div>
+      <div class="form-group">
+        <label>AI 供应商</label>
+        <select id="ai-provider" onchange="onProviderChange()">
+          <option value="">-- 请选择 --</option>
+          <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+          <option value="deepseek">DeepSeek 官方</option>
+          <option value="volcengine">火山引擎 (豆包)</option>
+          <option value="openai">OpenAI 官方</option>
+          <option value="custom">🖊️ 自定义</option>
+        </select>
+      </div>
+      <div class="form-group"><label>API 地址</label><input type="text" id="ai-api-url" placeholder="选择供应商后自动填充，或手动输入"></div>
       <div class="form-group"><label>API Key</label><input type="password" id="ai-api-key" placeholder="sk-..."></div>
-      <div class="form-group"><label>模型</label><input type="text" id="ai-model" placeholder="deepseek-ai/DeepSeek-V3.2"></div>
+      <div class="form-group">
+        <label>模型</label>
+        <select id="ai-model-preset" onchange="onModelPresetChange()">
+          <option value="">-- 选择供应商后出现 --</option>
+        </select>
+        <input type="text" id="ai-model" placeholder="或手动输入模型名" style="margin-top:8px;">
+      </div>
       <div class="form-actions">
         <button class="btn btn-primary" id="btn-save-ai">保存配置</button>
         <button class="btn" id="btn-test-ai">🔗 测试连接</button>

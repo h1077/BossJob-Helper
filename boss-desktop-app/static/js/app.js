@@ -188,6 +188,77 @@ async function deleteResume(id) {
   loadResumes();
 }
 
+// ── AI Provider Presets ──
+const AI_PROVIDERS = {
+  siliconflow: {
+    name: '硅基流动',
+    url: 'https://api.siliconflow.cn/v1/chat/completions',
+    models: [
+      'deepseek-ai/DeepSeek-V3',
+      'deepseek-ai/DeepSeek-R1',
+      'deepseek-ai/DeepSeek-R1-0528',
+      'Qwen/Qwen3-235B-A22B',
+      'Pro/THUDM/GLM-4-9B-Chat',
+    ],
+  },
+  deepseek: {
+    name: 'DeepSeek',
+    url: 'https://api.deepseek.com/v1',
+    models: [
+      'deepseek-chat',
+      'deepseek-reasoner',
+    ],
+  },
+  volcengine: {
+    name: '火山引擎',
+    url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+    models: [
+      'deepseek-v3-250324',
+      'deepseek-r1-250528',
+      'doubao-1.5-pro-256k-250115',
+      'doubao-1.5-lite-32k-250115',
+    ],
+  },
+  openai: {
+    name: 'OpenAI',
+    url: 'https://api.openai.com/v1/chat/completions',
+    models: [
+      'gpt-4o',
+      'gpt-4.1',
+      'gpt-4o-mini',
+      'gpt-4.1-mini',
+    ],
+  },
+};
+
+function onProviderChange() {
+  const provider = document.getElementById('ai-provider').value;
+  const urlInput = document.getElementById('ai-api-url');
+  const modelPreset = document.getElementById('ai-model-preset');
+  const modelInput = document.getElementById('ai-model');
+
+  if (!provider) {
+    modelPreset.innerHTML = '<option value="">-- 选择供应商后出现 --</option>';
+    return;
+  }
+
+  if (provider === 'custom') {
+    modelPreset.innerHTML = '<option value="">-- 手动输入 --</option>';
+    return;
+  }
+
+  const cfg = AI_PROVIDERS[provider];
+  urlInput.value = cfg.url;
+  modelPreset.innerHTML = '<option value="">-- 选择模型（或手动输入）--</option>' +
+    cfg.models.map(m => `<option value="${m}">${m}</option>`).join('');
+  modelInput.value = cfg.models[0];
+}
+
+function onModelPresetChange() {
+  const val = document.getElementById('ai-model-preset').value;
+  if (val) document.getElementById('ai-model').value = val;
+}
+
 // Settings
 async function loadSettings() {
   const res = await API('/ai/settings');
@@ -195,6 +266,19 @@ async function loadSettings() {
     document.getElementById('ai-api-url').value = res.data.api_url || '';
     document.getElementById('ai-api-key').value = res.data.api_key || '';
     document.getElementById('ai-model').value = res.data.model || '';
+    autoDetectProvider(res.data.api_url || '');
+  }
+}
+
+function autoDetectProvider(apiUrl) {
+  const providerSelect = document.getElementById('ai-provider');
+  let detected = null;
+  for (const [key, cfg] of Object.entries(AI_PROVIDERS)) {
+    if (apiUrl.includes(new URL(cfg.url).hostname)) { detected = key; break; }
+  }
+  if (detected) {
+    providerSelect.value = detected;
+    onProviderChange();
   }
 }
 
