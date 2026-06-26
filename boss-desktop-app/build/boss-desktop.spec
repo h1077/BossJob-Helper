@@ -23,7 +23,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Boss海投小助手',
+    name='Boss_helper',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

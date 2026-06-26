@@ -64,6 +64,13 @@
       { start: 14, end: 17, label: "下午 14:00-17:00" },
     ],
 
+    HR_INACTIVE_DAYS: 14,
+
+    MAX_SCAN_PAGES: 5,
+    PAGE_SCAN_DELAY: 8000,
+
+    DAILY_APPLY_LIMIT: 100,
+
     REJECTION_KEYWORDS: [
       "不合适", "不太符合", "不考虑", "抱歉", "遗憾",
       "已招到", "招满了", "暂时不需要", "有更合适的人选",

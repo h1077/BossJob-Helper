@@ -326,6 +326,58 @@
     },
   };
 
+  const AICache = {
+    KEY_PREFIX: 'ai_ck_',
+    _TTL: 24 * 60 * 60 * 1000,
+
+    _fullKey(namespace, key) {
+      return this.KEY_PREFIX + namespace + '_' + (key || '').substring(0, 120);
+    },
+
+    get(namespace, key) {
+      try {
+        const raw = localStorage.getItem(this._fullKey(namespace, key));
+        if (!raw) return null;
+        const entry = JSON.parse(raw);
+        if (Date.now() - entry.ts > this._TTL) {
+          localStorage.removeItem(this._fullKey(namespace, key));
+          return null;
+        }
+        return entry.value;
+      } catch (e) { return null; }
+    },
+
+    set(namespace, key, value) {
+      try {
+        localStorage.setItem(this._fullKey(namespace, key), JSON.stringify({ value, ts: Date.now() }));
+      } catch (e) { this._prune(); }
+    },
+
+    _prune() {
+      const now = Date.now();
+      const toRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(this.KEY_PREFIX)) {
+          try {
+            if (now - JSON.parse(localStorage.getItem(k)).ts > this._TTL) toRemove.push(k);
+          } catch (e) { toRemove.push(k); }
+        }
+      }
+      toRemove.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    },
+
+    invalidate(namespace) {
+      const prefix = this.KEY_PREFIX + namespace;
+      const toRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) toRemove.push(k);
+      }
+      toRemove.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    },
+  };
+
   const Analytics = {
     KEY: "bossAnalytics",
     MAX: 500,

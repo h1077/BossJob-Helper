@@ -9,6 +9,7 @@
         localStorage.removeItem(STORAGE.AI_DATE);
         localStorage.removeItem(STORAGE.LETTER);
       }, midnight - Date.now());
+      CompanyDedup.loadFromStorage();
       UI.init();
       StatsManager.load();
       UI.updateStatsDisplay();
@@ -40,7 +41,7 @@
     }
   }
 
-  window.addEventListener("load", init);
+  if (document.readyState === "complete") { init(); } else { window.addEventListener("load", init); }
 
   let lastUrl = location.href;
   new MutationObserver(() => {

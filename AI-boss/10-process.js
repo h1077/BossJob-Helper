@@ -5,6 +5,7 @@
       state.comments.isCommentMode = false;
       state.jobList = [];
       state.currentCityIndex = 0;
+      state.currentPage = 1;
 
       state.includeKeywords = elements.includeInput.value
         .trim()
@@ -12,6 +13,11 @@
         .split(/[，,]/)
         .filter((keyword) => keyword.trim() !== "");
       state.locationKeywords = (elements.locationInput?.value || "")
+        .trim()
+        .toLowerCase()
+        .split(/[，,]/)
+        .filter((keyword) => keyword.trim() !== "");
+      state.welfareKeywords = (elements.welfareInput?.value || "")
         .trim()
         .toLowerCase()
         .split(/[，,]/)
@@ -29,7 +35,8 @@
       Core.log(`开始自动海投，时间：${startTime.toLocaleTimeString()}`);
       Core.log(
         `筛选条件：职位名包含【${state.includeKeywords.join("、") || "无"
-        }】，工作地包含【${state.locationKeywords.join("、") || "无"}】`
+        }】，工作地包含【${state.locationKeywords.join("、") || "无"}】` +
+        (state.welfareKeywords.length ? `，福利包含【${state.welfareKeywords.join("、")}】` : "")
       );
 
       // 如果有多个城市，先切换到第一个城市

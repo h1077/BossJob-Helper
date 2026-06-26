@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         小胡版AI-boss海投助手
-// @namespace    https://github.com/DYxiaochen
+// @namespace    https://github.com/h1077/BossJob-Helper
 // @version      2.0.0.0
 // @description  基于Yangshengzhou开源项目改进的求职工具！小胡开发用于提高BOSS直聘投递效率，AI智能回复，批量沟通，高效求职
 // @author       小胡 (基于Yangshengzhou开源项目)
 // @match        https://www.zhipin.com/web/*
 // @grant        GM_xmlhttpRequest
 // @run-at       document-idle
-// @supportURL   https://github.com/DYxiaochen/AI-BossJob
-// @homepageURL  https://github.com/DYxiaochen/AI-BossJob
+// @supportURL   https://github.com/h1077/BossJob-Helper
+// @homepageURL  https://github.com/h1077/BossJob-Helper
 // @license      AGPL-3.0-or-later
 // @icon         https://gitee.com/Yangshengzhou/jobs_helper/raw/Boss/assets/icon.ico
 // @connect      zhipin.com
@@ -20,7 +20,6 @@
 // @connect      api.deepseek.com
 // @connect      localhost
 // @noframes
-// @require      https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.min.js
 // ==/UserScript==
 
 (function () {

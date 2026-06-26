@@ -284,9 +284,15 @@
           !state.settings.greetingsList ||
           state.settings.greetingsList.length === 0
         ) {
-          return false;
+          const defaultGreeting = "您好，我对该岗位很感兴趣，我的技能与岗位要求匹配，期待与您进一步沟通";
+          Core.log("使用默认招呼语（无预设模板）");
+          await this.sendCustomReply(defaultGreeting);
+          await Core.delay(state.settings.actionDelays.click);
+          StatsManager.increment("greetsSent");
+          return true;
         }
 
+        let sent = false;
         for (let i = 0; i < state.settings.greetingsList.length; i++) {
           const greeting = state.settings.greetingsList[i];
           if (!greeting.content || !greeting.content.trim()) {
@@ -296,6 +302,14 @@
             `发送自我介绍：第${i + 1}条/共${state.settings.greetingsList.length}条`
           );
           await this.sendCustomReply(greeting.content);
+          await Core.delay(state.settings.actionDelays.click);
+          sent = true;
+        }
+
+        if (!sent) {
+          const defaultGreeting = "您好，我对该岗位很感兴趣，我的技能与岗位要求匹配，期待与您进一步沟通";
+          Core.log("使用默认招呼语（模板均为空）");
+          await this.sendCustomReply(defaultGreeting);
           await Core.delay(state.settings.actionDelays.click);
         }
 

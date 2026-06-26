@@ -156,7 +156,7 @@
                     &emsp;&emsp;冀以尘雾之微补益山海，荧烛末光增辉日月。
                 </p>
                 <p class="mt-3" style="font-size:0.85rem;color:#999;">
-                    &emsp;&emsp;开源地址：https://github.com/DYxiaochen/AI-BossJob | AGPL-3.0-or-later
+                    &emsp;&emsp;开源地址：https://github.com/h1077/BossJob-Helper | AGPL-3.0-or-later
                 </p>
             </div>
             <div style="text-align:right;color:${COLORS.textLight};text-indent:0;">

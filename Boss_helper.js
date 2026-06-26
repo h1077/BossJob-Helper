@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         小胡版AI-boss海投助手
-// @namespace    https://github.com/DYxiaochen
+// @namespace    https://github.com/h1077/BossJob-Helper
 // @version      2.0.0.0
 // @description  基于Yangshengzhou开源项目改进的求职工具！小胡开发用于提高BOSS直聘投递效率，AI智能回复，批量沟通，高效求职
 // @author       小胡 (基于Yangshengzhou开源项目)
 // @match        https://www.zhipin.com/web/*
 // @grant        GM_xmlhttpRequest
 // @run-at       document-idle
-// @supportURL   https://github.com/DYxiaochen/AI-BossJob
-// @homepageURL  https://github.com/DYxiaochen/AI-BossJob
+// @supportURL   https://github.com/h1077/BossJob-Helper
+// @homepageURL  https://github.com/h1077/BossJob-Helper
 // @license      AGPL-3.0-or-later
 // @icon         https://gitee.com/Yangshengzhou/jobs_helper/raw/Boss/assets/icon.ico
 // @connect      zhipin.com
@@ -20,7 +20,6 @@
 // @connect      api.deepseek.com
 // @connect      localhost
 // @noframes
-// @require      https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.min.js
 // ==/UserScript==
 
 (function () {
@@ -129,6 +128,13 @@
       { start: 9, end: 11, label: "上午 9:00-11:00" },
       { start: 14, end: 17, label: "下午 14:00-17:00" },
     ],
+
+    HR_INACTIVE_DAYS: 14,
+
+    MAX_SCAN_PAGES: 5,
+    PAGE_SCAN_DELAY: 8000,
+
+    DAILY_APPLY_LIMIT: 100,
 
     REJECTION_KEYWORDS: [
       "不合适", "不太符合", "不考虑", "抱歉", "遗憾",
@@ -491,6 +497,72 @@
       };
     }
   }
+
+  const CompanyDedup = {
+    _SUFFIXES: [
+      '科技有限公司', '信息技术有限公司', '网络科技有限公司',
+      '股份有限公司', '有限责任公司', '有限公司', '集团',
+      '科技', '信息技术', '网络科技', '软件', '技术',
+      '(北京)', '（北京）', '(上海)', '（上海）',
+      '(深圳)', '（深圳）', '(广州)', '（广州）',
+      '(杭州)', '（杭州）', '(成都)', '（成都）',
+    ],
+
+    _CITY_PREFIXES: [
+      '北京', '上海', '深圳', '广州', '杭州',
+      '成都', '武汉', '南京', '西安', '重庆',
+      '苏州', '天津', '长沙', '郑州', '东莞',
+    ],
+
+    normalize(name) {
+      if (!name) return '';
+      let n = name.trim();
+      // 去城市前缀
+      for (const city of this._CITY_PREFIXES) {
+        if (n.startsWith(city) && n.length > city.length + 2) {
+          n = n.substring(city.length);
+          break;
+        }
+      }
+      // 去公司后缀
+      for (const suffix of this._SUFFIXES) {
+        if (n.endsWith(suffix)) { n = n.substring(0, n.length - suffix.length); break; }
+      }
+      // 去括号残留和空白
+      n = n.replace(/[（()）]/g, '').trim();
+      return n;
+    },
+
+    isDuplicate(companyName) {
+      if (!companyName) return false;
+      const normalized = this.normalize(companyName);
+      if (!normalized || normalized.length < 2) return false;
+      if (!state._appliedCompanies) state._appliedCompanies = new Set();
+      if (state._appliedCompanies.has(normalized)) return true;
+      // 模糊匹配：检查是否包含已知公司名
+      for (const known of state._appliedCompanies) {
+        if (known.length < 2) continue;
+        if (normalized.includes(known) || known.includes(normalized)) return true;
+      }
+      return false;
+    },
+
+    markApplied(companyName) {
+      if (!companyName) return;
+      const normalized = this.normalize(companyName);
+      if (!normalized || normalized.length < 2) return;
+      if (!state._appliedCompanies) state._appliedCompanies = new Set();
+      state._appliedCompanies.add(normalized);
+      try { localStorage.setItem('bossAppliedCompanies', JSON.stringify([...state._appliedCompanies])); } catch (e) {}
+    },
+
+    loadFromStorage() {
+      try {
+        const raw = localStorage.getItem('bossAppliedCompanies');
+        state._appliedCompanies = raw ? new Set(JSON.parse(raw)) : new Set();
+      } catch (e) { state._appliedCompanies = new Set(); }
+    },
+  };
   class StorageManager {
     static setItem(key, value) {
       try {
@@ -819,6 +891,58 @@
     },
   };
 
+  const AICache = {
+    KEY_PREFIX: 'ai_ck_',
+    _TTL: 24 * 60 * 60 * 1000,
+
+    _fullKey(namespace, key) {
+      return this.KEY_PREFIX + namespace + '_' + (key || '').substring(0, 120);
+    },
+
+    get(namespace, key) {
+      try {
+        const raw = localStorage.getItem(this._fullKey(namespace, key));
+        if (!raw) return null;
+        const entry = JSON.parse(raw);
+        if (Date.now() - entry.ts > this._TTL) {
+          localStorage.removeItem(this._fullKey(namespace, key));
+          return null;
+        }
+        return entry.value;
+      } catch (e) { return null; }
+    },
+
+    set(namespace, key, value) {
+      try {
+        localStorage.setItem(this._fullKey(namespace, key), JSON.stringify({ value, ts: Date.now() }));
+      } catch (e) { this._prune(); }
+    },
+
+    _prune() {
+      const now = Date.now();
+      const toRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(this.KEY_PREFIX)) {
+          try {
+            if (now - JSON.parse(localStorage.getItem(k)).ts > this._TTL) toRemove.push(k);
+          } catch (e) { toRemove.push(k); }
+        }
+      }
+      toRemove.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    },
+
+    invalidate(namespace) {
+      const prefix = this.KEY_PREFIX + namespace;
+      const toRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) toRemove.push(k);
+      }
+      toRemove.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    },
+  };
+
   const Analytics = {
     KEY: "bossAnalytics",
     MAX: 500,
@@ -1129,9 +1253,15 @@
           !state.settings.greetingsList ||
           state.settings.greetingsList.length === 0
         ) {
-          return false;
+          const defaultGreeting = "您好，我对该岗位很感兴趣，我的技能与岗位要求匹配，期待与您进一步沟通";
+          Core.log("使用默认招呼语（无预设模板）");
+          await this.sendCustomReply(defaultGreeting);
+          await Core.delay(state.settings.actionDelays.click);
+          StatsManager.increment("greetsSent");
+          return true;
         }
 
+        let sent = false;
         for (let i = 0; i < state.settings.greetingsList.length; i++) {
           const greeting = state.settings.greetingsList[i];
           if (!greeting.content || !greeting.content.trim()) {
@@ -1141,6 +1271,14 @@
             `发送自我介绍：第${i + 1}条/共${state.settings.greetingsList.length}条`
           );
           await this.sendCustomReply(greeting.content);
+          await Core.delay(state.settings.actionDelays.click);
+          sent = true;
+        }
+
+        if (!sent) {
+          const defaultGreeting = "您好，我对该岗位很感兴趣，我的技能与岗位要求匹配，期待与您进一步沟通";
+          Core.log("使用默认招呼语（模板均为空）");
+          await this.sendCustomReply(defaultGreeting);
           await Core.delay(state.settings.actionDelays.click);
         }
 
@@ -1762,10 +1900,17 @@
         "如：杭州,滨江"
       );
 
+      const welfareFilterCol = this._createInputControl(
+        "福利包含：",
+        "welfare-filter",
+        "如：双休,五险一金"
+      );
+
       elements.includeInput = includeFilterCol.querySelector("input");
       elements.locationInput = locationFilterCol.querySelector("input");
+      elements.welfareInput = welfareFilterCol.querySelector("input");
 
-      filterRow.append(includeFilterCol, locationFilterCol);
+      filterRow.append(includeFilterCol, locationFilterCol, welfareFilterCol);
 
       elements.controlBtn = this._createTextButton(
         "启动海投",
@@ -1940,7 +2085,7 @@
       const dashboard = document.createElement("div");
       dashboard.id = "boss-dashboard";
       dashboard.style.cssText = "margin: 0 0 10px 0; padding: 8px 10px; background: var(--secondary-color); border-radius: 8px;";
-      dashboard.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--primary-color); margin-bottom: 4px;">📋 求职仪表盘</div><div id="dashboard-stats" style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; color: #666;"></div>';
+      dashboard.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--primary-color); margin-bottom: 4px;">📋 求职仪表盘</div><div id="dashboard-stats" style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; color: #666; margin-bottom: 6px;"></div><div id="dashboard-funnel" style="font-size: 10px;"></div>';
 
       // 面试日程卡片
       const interviewCard = document.createElement("div");
@@ -2024,6 +2169,38 @@
       container.innerHTML = items.map(i =>
         `<span style="background:#fff;border-radius:4px;padding:2px 6px;">${i.label} <b>${i.value}</b></span>`
       ).join("");
+      this._updateFunnel();
+    },
+
+    _updateFunnel() {
+      const funnel = document.getElementById("dashboard-funnel");
+      if (!funnel) return;
+      const stages = [
+        { key: "greetsSent", label: "今日投递", color: "#4285f4" },
+        { key: "hrReplies", label: "HR 回复", color: "#34a853" },
+        { key: "interviewInvites", label: "面试邀约", color: "#ea4335" },
+      ];
+      const values = stages.map(s => state.stats[s.key] || 0);
+      const maxVal = Math.max(1, ...values);
+      const maxWidth = 100;
+      const widths = values.map((v, i) => {
+        const rate = i === 0 ? maxWidth : Math.round((v / Math.max(1, values[i - 1])) * maxWidth);
+        return Math.max(5, rate);
+      });
+
+      const bars = stages.map((s, i) => {
+        const pct = values[0] > 0 ? Math.round((values[i] / values[0]) * 100) : 0;
+        return `<div style="display:flex;align-items:center;margin:2px 0;gap:4px;">
+          <span style="min-width:48px;text-align:right;color:#888;">${s.label}</span>
+          <div style="flex:1;background:#eee;border-radius:3px;height:16px;overflow:hidden;">
+            <div style="width:${widths[i]}%;height:100%;background:${s.color};border-radius:3px;transition:width .5s;"></div>
+          </div>
+          <span style="min-width:40px;font-weight:600;color:${s.color};">${values[i]}</span>
+          <span style="font-size:9px;color:#aaa;min-width:32px;">${i === 0 ? '' : pct + '%'}</span>
+        </div>`;
+      }).join("");
+
+      funnel.innerHTML = `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #eee;">${bars}</div>`;
     },
 
     _createTextButton(text, bgColor, onClick) {
@@ -4840,6 +5017,10 @@
           }
         }
         await this.delay(this.getRandomInterval());
+        // Agent 指令轮询（每 5 个循环检查一次）
+        if (typeof DesktopBridge !== 'undefined' && Math.random() < 0.2) {
+          DesktopBridge.pollAgentCommand().catch(() => {});
+        }
       }
       this.loopRunning = false;
     },
@@ -5467,7 +5648,19 @@
           const excludeHeadhunterMatch =
             !excludeHeadhunters || !altText.includes("猎头");
 
-          return includeMatch && locationMatch && excludeHeadhunterMatch;
+          const welfareMatch =
+            state.welfareKeywords.length === 0 ||
+            state.welfareKeywords.some((kw) => {
+              const welfareText = (
+                card.querySelector(".info-desc")?.textContent ||
+                card.querySelector(".job-desc")?.textContent ||
+                card.querySelector(".tag-list")?.textContent ||
+                card.textContent
+              ).toLowerCase();
+              return kw && welfareText.includes(kw.trim());
+            });
+
+          return includeMatch && locationMatch && excludeHeadhunterMatch && welfareMatch;
         });
 
         if (state.settings.resumeAnalysis) {
@@ -5497,6 +5690,18 @@
       }
 
       if (state.currentIndex >= state.jobList.length) {
+        state.currentPage = state.currentPage || 1;
+        if (state.currentPage < CONFIG.MAX_SCAN_PAGES) {
+          const hasNext = await this.goToNextPage();
+          if (hasNext) {
+            state.jobList = [];
+            state.currentIndex = 0;
+            state.currentPage++;
+            return;
+          }
+        }
+        this.log(`翻页扫描完成（共 ${state.currentPage} 页），开始下一轮...`);
+        state.currentPage = 1;
         this.resetCycle();
         state.jobList = [];
         return;
@@ -5530,6 +5735,13 @@
         activeTime = activeTimeElement?.textContent?.trim() || "未知";
       }
 
+      const inactiveDays = this.parseInactiveDays(activeTime);
+      if (CONFIG.HR_INACTIVE_DAYS > 0 && inactiveDays > CONFIG.HR_INACTIVE_DAYS) {
+        this.log(`跳过: 招聘者${activeTime}（超过${CONFIG.HR_INACTIVE_DAYS}天不活跃阈值）`);
+        state.currentIndex++;
+        return;
+      }
+
       const isActiveStatusMatch =
         activeStatusFilter.includes("不限") ||
         activeStatusFilter.includes(activeTime);
@@ -5540,27 +5752,49 @@
         return;
       }
 
+      if (CONFIG.DAILY_APPLY_LIMIT > 0 && state.stats.greetsSent >= CONFIG.DAILY_APPLY_LIMIT) {
+        this.log(`今日投递已达上限（${CONFIG.DAILY_APPLY_LIMIT}），自动停止`);
+        toggleProcess();
+        return;
+      }
+
       const includeLog = state.includeKeywords.length
         ? `职位名包含[${state.includeKeywords.join("、")}]`
         : "职位名不限";
       const locationLog = state.locationKeywords.length
         ? `工作地包含[${state.locationKeywords.join("、")}]`
         : "工作地不限";
+      const welfareLog = state.welfareKeywords && state.welfareKeywords.length
+        ? `福利包含[${state.welfareKeywords.join("、")}]`
+        : "";
+      const jobName = currentCard.querySelector(".job-name")?.textContent?.trim() || "";
+      const companyName = currentCard.querySelector(".company-name")?.textContent?.trim() || "";
+
+      // 公司去重检查（模糊匹配）
+      if (companyName && CompanyDedup.isDuplicate(companyName)) {
+        this.log(`跳过: 已投递过该公司（${CompanyDedup.normalize(companyName)}）`);
+        state.currentIndex++;
+        return;
+      }
+
+      const pageInfo = (state.currentPage && state.currentPage > 1) ? `第${state.currentPage}页 ` : "";
       this.log(
-        `正在沟通：${++state.currentIndex}/${state.jobList.length
-        }，${includeLog}，${locationLog}，招聘者"${activeTime}"`
+        `${pageInfo}正在沟通：${++state.currentIndex}/${state.jobList.length
+        }，${includeLog}，${locationLog}${welfareLog ? '，' + welfareLog : ''}，招聘者"${activeTime}"`
       );
 
       const chatBtn = document.querySelector("a.op-btn-chat");
       if (chatBtn) {
         const btnText = chatBtn.textContent.trim();
         if (btnText === "立即沟通") {
+          this._recordSuccess();
           chatBtn.click();
           const jobName = currentCard.querySelector(".job-name")?.textContent?.trim() || "";
           const companyName = currentCard.querySelector(".company-name")?.textContent?.trim() || "";
           const salary = currentCard.querySelector(".salary")?.textContent?.trim() || "";
           const location = currentCard.querySelector(".job-area")?.textContent?.trim() || "";
           if (companyName && jobName) {
+            CompanyDedup.markApplied(companyName);
             JobTracker.add({ companyName, jobName, salary, location, status: "applied" });
             if (state.lastJdText) {
               JobTracker.add({ companyName, jobName, jd: state.lastJdText });
@@ -5583,7 +5817,11 @@
           }
           Analytics.track("job_apply", "jobs", { company: companyName, job: jobName });
           await this.handleGreetingModal();
+        } else {
+          this._recordFailure();
         }
+      } else {
+        this._recordFailure();
       }
     },
 
@@ -6482,20 +6720,19 @@
   【警告】如果简历内容为空或不清晰，请直接回复"简历内容无法识别，请检查上传的文件"。
   不要生成示例数据！必须基于真实简历内容分析。`;
 
-        const analysis = await this.requestAi(analysisPrompt);
-        
-        // 检查AI是否返回了示例内容（包含"某知名大学"、"某顶尖大学"等模板词汇）
+        const raw = await this.requestAi(analysisPrompt);
+        const analysis = this._cleanAIOutput(raw);
+
         const templateKeywords = ['某知名大学', '某顶尖大学', '某大学', '示例', '模板', '某某'];
         const isTemplate = templateKeywords.some(keyword => analysis.includes(keyword));
-        
+
         if (isTemplate) {
           this.log("警告：AI返回了模板内容，可能未正确读取简历");
           return "【警告】AI未能正确识别简历内容，请检查：\n1. 文件是否正确上传\n2. 简历内容是否可提取（PDF可能是扫描件）\n3. 尝试直接粘贴简历文本到文本框中\n\n原始返回内容：\n" + analysis;
         }
-        
+
         this.log("简历分析完成");
 
-        // 追加简历评分
         const scorePrompt = `基于上述简历分析，请输出JSON格式的结构化评分（不要markdown代码块）：
 {
   "overallScore": 1-10,
@@ -6507,8 +6744,9 @@
 }
 只输出JSON，不要其他内容。`;
         try {
-          const scoreJson = await this.requestAi(scorePrompt);
-          const scores = JSON.parse(scoreJson.replace(/```json|```/g, "").trim());
+          const rawScore = await this.requestAi(scorePrompt);
+          const cleanedScore = this._cleanAIOutput(rawScore).replace(/```json|```/g, '').trim();
+          const scores = JSON.parse(cleanedScore);
           state.resumeScores = scores;
           localStorage.setItem("bossResumeScores", JSON.stringify(scores));
           this.log(`简历评分: 综合${scores.overallScore}分`);
@@ -6545,7 +6783,7 @@
   5. 直接输出内容，不要加任何前缀或编号`;
 
         const response = await this.requestAi(greetingPrompt);
-        const content = response.trim();
+        const content = this._cleanAIOutput(response);
 
         if (content && content.length > 30) {
           const greetings = [{ id: "1", content }];
@@ -6580,14 +6818,16 @@
 
         if (!resumeText && !resumeAnalysis) {
           const prompt = buildPrompt(PHASES.GENERAL, hrMessage, positionName, "", "", strategy);
-          return await this.requestAi(prompt);
+          const raw = await this.requestAi(prompt);
+          return this._cleanAIOutput(raw) || raw;
         }
 
         const phase = detectPhase(hrMessage);
         this.log(`对话阶段: ${Object.keys(PHASES).find(k => PHASES[k] === phase)} (${STRATEGIES[strategy].label})`);
 
         const prompt = buildPrompt(phase, hrMessage, positionName, resumeText, resumeAnalysis, strategy);
-        const reply = await this.requestAi(prompt);
+        const raw = await this.requestAi(prompt);
+        const reply = this._cleanAIOutput(raw) || raw;
         // 记录对话记忆
         const hrKey = this.currentMonitoredHR || "";
         if (hrKey) {
@@ -6607,7 +6847,8 @@
         return reply;
       } catch (error) {
         this.log(`生成个性化回复失败: ${error.message}`);
-        return await this.requestAi(hrMessage);
+        const raw = await this.requestAi(hrMessage);
+        return this._cleanAIOutput(raw) || raw;
       }
     },
 
@@ -6725,7 +6966,26 @@
     getRandomInterval() {
       const min = CONFIG.SMART_INTERVAL.MIN;
       const max = CONFIG.SMART_INTERVAL.MAX;
-      return Math.floor(Math.random() * (max - min + 1)) + min;
+      const base = Math.floor(Math.random() * (max - min + 1)) + min;
+      this._backoffMultiplier = this._backoffMultiplier || 1;
+      if (Date.now() - (this._lastFailureTime || 0) > 120000) {
+        this._backoffMultiplier = 1;
+        this._consecutiveFailures = 0;
+      }
+      return Math.min(base * this._backoffMultiplier, 60000);
+    },
+
+    _recordFailure() {
+      this._consecutiveFailures = (this._consecutiveFailures || 0) + 1;
+      this._lastFailureTime = Date.now();
+      if (this._consecutiveFailures >= 3) this._backoffMultiplier = Math.min(6, 1 + this._consecutiveFailures * 0.5);
+    },
+
+    _recordSuccess() {
+      if ((this._consecutiveFailures || 0) > 0) {
+        this._consecutiveFailures = Math.max(0, (this._consecutiveFailures || 0) - 1);
+        this._backoffMultiplier = Math.max(1, (this._backoffMultiplier || 1) - 0.2);
+      }
     },
 
     isPeakHour() {
@@ -6737,6 +6997,43 @@
 
     getPeakHourRanges() {
       return CONFIG.PEAK_HOURS.map((r) => r.label).join("、");
+    },
+
+    _cleanAIOutput(text) {
+      if (!text || typeof text !== 'string') return '';
+      let cleaned = text.trim()
+        .replace(/^(好的|以下是[^。，]*?)[，,。]?\s*/gi, '')
+        .replace(/^(招呼语|为您生成|给您|回复|回答).*?[:：]\s*/gi, '')
+        .replace(/^["'「『]|["'」』]$/g, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/`{1,3}[^`]*`{1,3}/g, '')
+        .replace(/\n+/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/^[：:，,。；;！!\s]+/g, '')
+        .replace(/[：:，,。；;！!\s]+$/g, '')
+        .trim();
+      if (cleaned.length < 5) return '';
+      const prefixPatterns = /^(AI|ChatGPT|Claude|Assistant|助手|模型)[：:，,]?\s*/gi;
+      cleaned = cleaned.replace(prefixPatterns, '');
+      return cleaned.trim();
+    },
+
+    parseInactiveDays(activeTime) {
+      const patterns = [
+        ["在线", 0], ["刚刚活跃", 0], ["今日活跃", 0], ["刚刚在线", 0],
+        ["3日内活跃", 3], ["3天前在线", 3],
+        ["本周活跃", 7], ["7天前在线", 7],
+        ["本月活跃", 30], ["30天前在线", 30],
+        ["半年前活跃", 180], ["半年前在线", 180],
+      ];
+      for (const [key, days] of patterns) {
+        if (activeTime.includes(key)) return days;
+      }
+      if (activeTime.includes("日内活跃") || activeTime.includes("天前在线")) {
+        const match = activeTime.match(/(\d+)/);
+        if (match) return parseInt(match[1]);
+      }
+      return -1;
     },
 
     async handleGreetSettingsPage() {
@@ -6886,6 +7183,31 @@
       }
 
       return { score, matched };
+    },
+
+    async goToNextPage() {
+      const selectors = [
+        '.options-pages .next:not(.disabled)',
+        '.pagination .next:not(.disabled)',
+        '[class*="pagination"] .next:not(.disabled)',
+        '.page-btn.next:not(.disabled)',
+        'a.page-next:not(.disabled)',
+        '.page-next:not(.disabled)',
+        '.options-pages a:last-child:not(.disabled)',
+        '.options-pages li:last-child a:not(.disabled)',
+      ];
+      for (const sel of selectors) {
+        const btn = document.querySelector(sel);
+        if (btn) {
+          btn.click();
+          this.log(`翻到第 ${(state.currentPage || 1) + 1} 页，等待加载...`);
+          await this.delay(CONFIG.PAGE_SCAN_DELAY);
+          await this.scrollToLoadMoreJobs();
+          await this.delay(2000);
+          return true;
+        }
+      }
+      return false;
     },
 
     async resetCycle() {
@@ -7305,45 +7627,75 @@
       return null;
     },
 
+    _extractSkillsFromJD(jdText) {
+      if (!jdText) return [];
+      const skillPatterns = [
+        /React|Vue|Angular|Node\.js|TypeScript|JavaScript|ES6|CSS3|HTML5/gi,
+        /Python|Django|Flask|FastAPI|Tornado/gi,
+        /Java|Spring|SpringBoot|MyBatis|Hibernate|JVM/gi,
+        /Go|Golang|Rust|C\+\+|C#|\.NET|PHP/gi,
+        /SQL|MySQL|PostgreSQL|MongoDB|Redis|Elasticsearch/gi,
+        /Docker|Kubernetes|k8s|Jenkins|CI\/CD|DevOps/gi,
+        /AWS|Azure|GCP|阿里云|腾讯云|华为云/gi,
+        /机器学习|深度学习|NLP|CV|自然语言|计算机视觉|TensorFlow|PyTorch/gi,
+        /Linux|Shell|Git|Nginx|消息队列|Kafka|RabbitMQ/gi,
+        /Android|iOS|Swift|Kotlin|Flutter|RN|Weex/gi,
+      ];
+      const found = new Set();
+      for (const pattern of skillPatterns) {
+        const matches = jdText.match(pattern);
+        if (matches) matches.forEach(m => found.add(m.charAt(0).toUpperCase() + m.slice(1)));
+      }
+      return [...found].slice(0, 3);
+    },
+
+    _buildTemplateGreeting(skills, jobName, companyName) {
+      const company = companyName || '贵公司';
+      const job = jobName || '该岗位';
+      if (skills.length >= 2) {
+        const greeting = `熟悉${skills.slice(0, 2).join('、')}，做过相关项目，对${company}的${job}很感兴趣，期待进一步沟通`;
+        if (greeting.length <= 120) return greeting;
+      }
+      if (skills.length >= 1) {
+        return `熟悉${skills[0]}及相关技术栈，对${company}的${job}很感兴趣，期待进一步沟通`;
+      }
+      return `您好，我对${company}的${job}很感兴趣，我的技能与岗位要求匹配，期待与您进一步沟通`;
+    },
+
     async generateCustomGreeting(jdText) {
       if (!jdText || jdText.length < 20) return null;
+
+      const currentCard = state.jobList && state.jobList[state.currentIndex - 1];
+      const jobId = currentCard ? (currentCard.getAttribute('data-jobid') || currentCard.querySelector('[data-jobid]')?.getAttribute('data-jobid') || '') : '';
+      const companyName = currentCard ? (currentCard.querySelector('.company-name')?.textContent?.trim() || '') : '';
+      const jobName = currentCard ? (currentCard.querySelector('.job-name')?.textContent?.trim() || '') : '';
+
+      // 第一级: localStorage 24h 缓存
+      if (jobId) {
+        const cached = AICache.get('greet', jobId);
+        if (cached) { this.log('📝 使用本地缓存的招呼语'); return cached; }
+      }
+
       const resumeText = state.settings.resumeText || "";
       const resumeAnalysis = state.settings.resumeAnalysis || "";
+      let result = null;
 
-      // 优先走桌面端生成（带缓存 + 降级支持）
+      // 第二级: 桌面端生成
       if (typeof DesktopBridge !== 'undefined') {
         try {
-          const currentCard = state.jobList && state.jobList[state.currentIndex - 1];
-          const jobId = currentCard ? (currentCard.getAttribute('data-jobid') || currentCard.querySelector('[data-jobid]')?.getAttribute('data-jobid') || '') : '';
-          const companyName = currentCard ? (currentCard.querySelector('.company-name')?.textContent?.trim() || '') : '';
-          const jobName = currentCard ? (currentCard.querySelector('.job-name')?.textContent?.trim() || '') : '';
-
-          const result = await DesktopBridge.generateGreeting(jobId, jdText, resumeText, companyName, jobName);
-          if (result && result.greeting) {
-            if (result.cached) {
-              this.log('📝 使用已缓存的 JD 定制招呼语');
-            } else if (result.grade === 'full') {
-              this.log('📝 已生成 JD 定制招呼语（基于简历）');
-            } else {
-              this.log('📝 已生成 JD 简化招呼语（未上传简历，建议上传以获得更精准匹配）');
-            }
-            return result.greeting;
+          const dr = await DesktopBridge.generateGreeting(jobId, jdText, resumeText, companyName, jobName);
+          if (dr && dr.greeting) {
+            result = dr.greeting;
+            this.log(dr.cached ? '📝 桌面端返回缓存的招呼语' : (dr.grade === 'full' ? '📝 桌面端已生成招呼语（基于简历）' : '📝 桌面端已生成招呼语（简化版）'));
           }
-        } catch (e) {
-          this.log('桌面端生成招呼语失败: ' + e.message + '，回退本地生成');
-        }
+        } catch (e) { this.log('桌面端生成招呼语失败: ' + e.message); }
       }
 
-      // 本地生成（无桌面端时）
-      if (!resumeText && !resumeAnalysis) {
-        this.log('⚠️ 未上传简历，跳过 JD 定制招呼语（安装桌面管家可支持无简历降级生成）');
-        return null;
-      }
-
-      const truncatedResume = this.truncateResumeText(resumeText, 3000);
-      const truncatedJd = jdText.length > 2000 ? jdText.substring(0, 2000) : jdText;
-
-      const prompt = `你是求职者本人，在BOSS直聘给HR发招呼语。
+      // 第三级: 本地 AI 生成
+      if (!result && (resumeText || resumeAnalysis)) {
+        const truncatedResume = this.truncateResumeText(resumeText, 3000);
+        const truncatedJd = jdText.length > 2000 ? jdText.substring(0, 2000) : jdText;
+        const prompt = `你是求职者本人，在BOSS直聘给HR发招呼语。
 【硬格式】1.开头前15字必须是"熟悉XXX、XXX"（填该岗位JD要求且你简历具备的核心技能1-2个）。2.紧接着"做过XXX"说明简历里与该岗位相关的具体项目/经历。3.全文80-120字，真诚自然。
 【严禁】任何注释、说明、引导语、括号备注、字数统计、"好的"、"以下是"。
 
@@ -7355,26 +7707,37 @@ ${resumeAnalysis ? '简历分析：' + resumeAnalysis : ''}
 ${truncatedJd}
 
 直接输出招呼语本身，不要任何多余内容。`;
-
-      try {
-        const reply = await this.requestAi(prompt);
-        if (reply && reply.length > 10) {
-          // 清理 AI 废话前缀
-          let cleaned = reply.trim()
-            .replace(/^(好的|以下是[^。，]*?)[，,。]?\s*/i, '')
-            .replace(/^(招呼语|为您生成).*?[:：]\s*/i, '')
-            .replace(/<[^>]+>/g, '').replace(/`/g, '').replace(/\n+/g, ' ').trim();
-          if (cleaned.length > 10) {
-            this.log('📝 已生成 JD 定制招呼语（本地）');
-            return cleaned;
+        try {
+          const reply = await this.requestAi(prompt);
+          const cleaned = this._cleanAIOutput(reply);
+          if (cleaned.length >= 10 && cleaned.length <= 200) {
+            result = cleaned;
+            this.log('📝 本地 AI 已生成招呼语');
           }
-        }
-      } catch (e) {}
-      return null;
+        } catch (e) { this.log('本地 AI 招呼语生成失败: ' + e.message); }
+      }
+
+      // 第四级: JD 关键词模板
+      if (!result) {
+        const jdSkills = this._extractSkillsFromJD(jdText);
+        result = this._buildTemplateGreeting(jdSkills, jobName, companyName);
+        if (result) this.log('📝 使用模板招呼语');
+      }
+
+      // 存入缓存
+      if (result && jobId) {
+        AICache.set('greet', jobId, result);
+      }
+      return result;
     },
 
     async evaluateJob(companyName, positionName) {
       if (!state.settings.ai.enableCompanyCheck) return null;
+
+      // 缓存检查
+      const cacheKey = (companyName || '未知') + '|' + (positionName || '未知');
+      const cached = AICache.get('eval', cacheKey);
+      if (cached) { this.log('📊 使用本地缓存的岗位评估'); return cached; }
 
       let jdText = state.lastJdText || "";
       if (!jdText || jdText.length < 20) {
@@ -7418,33 +7781,93 @@ ${enableResearch ? '- 公司规模正规、行业口碑好、无负面新闻' : 
 
 评分：1-6分=不推荐, 7-8分=正常, 9-10分=优质
 
-请直接输出：分数|评价内容（30字内）`;
+只输出一个格式：数字|短评（30字内），不要任何多余内容。`;
       } else {
         prompt = `请评估这个岗位的靠谱程度。回答格式：分数|综合评价
 
 公司：${companyName || "未知"}
 岗位：${positionName || "未知"}
 
-${enableResearch ? `【重要】无JD详情，请根据你对"${companyName}"这家公司的了解来评估（公司规模、口碑、负面新闻、劳动纠纷等）。如果完全不了解，给7分。` : "【注意】无JD信息时默认给7分，回复"7|无JD详情，默认通过"即可。"`}
+${enableResearch ? `【重要】无JD详情，请根据你对"${companyName}"这家公司的了解来评估（公司规模、口碑、负面新闻、劳动纠纷等）。如果完全不了解，给7分。` : "【注意】无JD信息时默认给7分，回复\"7|无JD详情，默认通过\"即可。"}
 
 评分：1-6分=不推荐, 7-8分=正常, 9-10分=优质
 
-请直接输出：分数|评价内容（30字内）`;
+只输出一个格式：数字|短评（30字内），不要任何多余内容。`;
 
       }
 
+      let result = { score: 7, comment: "评估失败，默认通过" };
       try {
         const reply = await this.requestAi(prompt);
-        const match = reply.match(/^(\d+)\s*[|｜]\s*(.+)/);
+        const cleaned = this._cleanAIOutput(reply);
+        const match = cleaned.match(/^(\d+)\s*[|｜]\s*(.+)/);
         if (match) {
-          return { score: parseInt(match[1]), comment: match[2].trim() };
-        }
-        const scoreMatch = reply.match(/\d+/);
-        if (scoreMatch) {
-          return { score: parseInt(scoreMatch[0]), comment: reply.trim() };
+          result = { score: parseInt(match[1]), comment: match[2].trim() };
+        } else {
+          const scoreMatch = cleaned.match(/\d+/);
+          if (scoreMatch) {
+            result = { score: parseInt(scoreMatch[0]), comment: cleaned };
+          }
         }
       } catch (e) {}
-      return { score: 7, comment: "评估失败，默认通过" };
+
+      AICache.set('eval', cacheKey, result);
+      return result;
+    },
+
+    async analyzeJobMatch(jdText, positionName, companyName) {
+      const cacheKey = 'match_' + (companyName || '未知') + '|' + (positionName || '未知');
+      const cached = AICache.get('eval', cacheKey);
+      if (cached) { this.log('📊 使用缓存的岗位匹配分析'); return cached; }
+
+      const resumeText = state.settings.resumeText || "";
+      const resumeAnalysis = state.settings.resumeAnalysis || "";
+      const jd = (jdText && jdText.length > 30) ? jdText.substring(0, 2000) : (state.lastJdText || "");
+      const resumeBlock = (resumeText || resumeAnalysis)
+        ? `\n候选人背景：\n${(resumeText || '').substring(0, 1500)}\n${resumeAnalysis ? '分析：' + resumeAnalysis.substring(0, 500) : ''}`
+        : '\n（未上传简历，仅基于JD分析岗位本身）';
+
+      const prompt = `你是资深职业顾问。分析以下岗位与候选人的匹配度。
+
+公司：${companyName || "未知"}
+岗位：${positionName || "未知"}
+JD内容：${jd.substring(0, 2000)}${resumeBlock}
+
+请按以下格式输出（每行一个维度，用"|"分隔标签和内容）：
+匹配度|0-100的数字
+匹配技能|候选人具备且JD要求的技能（逗号分隔，无则填"无简历无法判断"）
+技能差距|JD要求但候选人可能欠缺的（无则填"无明显差距"）
+决策建议|值得投/谨慎/放弃，一句话理由
+风险点|需要注意的风险（无则填"无明显风险"）
+建议提问|面试时可问HR的1-2个问题
+
+只输出上述6行，不要任何额外文字。`;
+
+      let result = null;
+      try {
+        const reply = await this.requestAi(prompt);
+        const cleaned = this._cleanAIOutput(reply);
+        const lines = cleaned.split('\n').filter(l => l.includes('|'));
+        const data = {};
+        lines.forEach(line => {
+          const idx = line.indexOf('|');
+          if (idx > 0) data[line.substring(0, idx).trim()] = line.substring(idx + 1).trim();
+        });
+        const matchPercent = parseInt(data['匹配度']) || 0;
+        result = {
+          matchPercent: Math.min(100, Math.max(0, matchPercent)),
+          matchedSkills: data['匹配技能'] || '',
+          skillGaps: data['技能差距'] || '',
+          decision: data['决策建议'] || '',
+          risks: data['风险点'] || '',
+          suggestedQuestions: data['建议提问'] || '',
+          raw: cleaned,
+        };
+      } catch (e) {
+        result = { matchPercent: 50, decision: '分析失败，建议手动评估', raw: '' };
+      }
+      AICache.set('eval', cacheKey, result);
+      return result;
     },
 
     async generateRejectionReply(companyName, score, comment) {
@@ -7658,6 +8081,7 @@ ${strategyNote}
       state.comments.isCommentMode = false;
       state.jobList = [];
       state.currentCityIndex = 0;
+      state.currentPage = 1;
 
       state.includeKeywords = elements.includeInput.value
         .trim()
@@ -7665,6 +8089,11 @@ ${strategyNote}
         .split(/[，,]/)
         .filter((keyword) => keyword.trim() !== "");
       state.locationKeywords = (elements.locationInput?.value || "")
+        .trim()
+        .toLowerCase()
+        .split(/[，,]/)
+        .filter((keyword) => keyword.trim() !== "");
+      state.welfareKeywords = (elements.welfareInput?.value || "")
         .trim()
         .toLowerCase()
         .split(/[，,]/)
@@ -7682,7 +8111,8 @@ ${strategyNote}
       Core.log(`开始自动海投，时间：${startTime.toLocaleTimeString()}`);
       Core.log(
         `筛选条件：职位名包含【${state.includeKeywords.join("、") || "无"
-        }】，工作地包含【${state.locationKeywords.join("、") || "无"}】`
+        }】，工作地包含【${state.locationKeywords.join("、") || "无"}】` +
+        (state.welfareKeywords.length ? `，福利包含【${state.welfareKeywords.join("、")}】` : "")
       );
 
       // 如果有多个城市，先切换到第一个城市
@@ -7919,7 +8349,7 @@ ${strategyNote}
                     &emsp;&emsp;冀以尘雾之微补益山海，荧烛末光增辉日月。
                 </p>
                 <p class="mt-3" style="font-size:0.85rem;color:#999;">
-                    &emsp;&emsp;开源地址：https://github.com/DYxiaochen/AI-BossJob | AGPL-3.0-or-later
+                    &emsp;&emsp;开源地址：https://github.com/h1077/BossJob-Helper | AGPL-3.0-or-later
                 </p>
             </div>
             <div style="text-align:right;color:${COLORS.textLight};text-indent:0;">
@@ -8479,6 +8909,34 @@ ${strategyNote}
       } catch (e) {}
       return null;
     },
+
+    async pollAgentCommand() {
+      if (!await this.isAvailable()) return null;
+      try {
+        const resp = await fetch(this._baseUrl + '/api/agent/command', { signal: AbortSignal.timeout(3000) });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.ok && data.data && data.data.pending) {
+            const cmd = data.data.command;
+            // 执行 Agent 指令
+            if (cmd.action === 'start_apply' && typeof toggleProcess === 'function' && !state.isRunning) {
+              toggleProcess();
+              Core.log('🤖 Agent 指令: 启动海投');
+            } else if (cmd.action === 'stop_apply' && typeof toggleProcess === 'function' && state.isRunning) {
+              toggleProcess();
+              Core.log('🤖 Agent 指令: 停止海投');
+            }
+            // 确认执行
+            fetch(this._baseUrl + '/api/agent/command/ack', {
+              method: 'POST', headers: await this._authHeaders(),
+              body: JSON.stringify({ id: cmd.id }), signal: AbortSignal.timeout(3000),
+            }).catch(() => {});
+            return cmd;
+          }
+        }
+      } catch (e) {}
+      return null;
+    },
   };
   async function init() {
     try {
@@ -8491,6 +8949,7 @@ ${strategyNote}
         localStorage.removeItem(STORAGE.AI_DATE);
         localStorage.removeItem(STORAGE.LETTER);
       }, midnight - Date.now());
+      CompanyDedup.loadFromStorage();
       UI.init();
       StatsManager.load();
       UI.updateStatsDisplay();
@@ -8522,7 +8981,7 @@ ${strategyNote}
     }
   }
 
-  window.addEventListener("load", init);
+  if (document.readyState === "complete") { init(); } else { window.addEventListener("load", init); }
 
   let lastUrl = location.href;
   new MutationObserver(() => {

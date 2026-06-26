@@ -57,11 +57,13 @@ def create_app():
     from routes.jobs import jobs_bp
     from routes.resumes import resumes_bp
     from routes.analytics import analytics_bp
+    from routes.agent import agent_bp
 
     app.register_blueprint(ai_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(resumes_bp)
     app.register_blueprint(analytics_bp)
+    app.register_blueprint(agent_bp)
 
     @app.route('/api/health')
     def health():

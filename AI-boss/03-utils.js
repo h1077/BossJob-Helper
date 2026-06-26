@@ -194,3 +194,68 @@
     }
   }
 
+  const CompanyDedup = {
+    _SUFFIXES: [
+      '科技有限公司', '信息技术有限公司', '网络科技有限公司',
+      '股份有限公司', '有限责任公司', '有限公司', '集团',
+      '科技', '信息技术', '网络科技', '软件', '技术',
+      '(北京)', '（北京）', '(上海)', '（上海）',
+      '(深圳)', '（深圳）', '(广州)', '（广州）',
+      '(杭州)', '（杭州）', '(成都)', '（成都）',
+    ],
+
+    _CITY_PREFIXES: [
+      '北京', '上海', '深圳', '广州', '杭州',
+      '成都', '武汉', '南京', '西安', '重庆',
+      '苏州', '天津', '长沙', '郑州', '东莞',
+    ],
+
+    normalize(name) {
+      if (!name) return '';
+      let n = name.trim();
+      // 去城市前缀
+      for (const city of this._CITY_PREFIXES) {
+        if (n.startsWith(city) && n.length > city.length + 2) {
+          n = n.substring(city.length);
+          break;
+        }
+      }
+      // 去公司后缀
+      for (const suffix of this._SUFFIXES) {
+        if (n.endsWith(suffix)) { n = n.substring(0, n.length - suffix.length); break; }
+      }
+      // 去括号残留和空白
+      n = n.replace(/[（()）]/g, '').trim();
+      return n;
+    },
+
+    isDuplicate(companyName) {
+      if (!companyName) return false;
+      const normalized = this.normalize(companyName);
+      if (!normalized || normalized.length < 2) return false;
+      if (!state._appliedCompanies) state._appliedCompanies = new Set();
+      if (state._appliedCompanies.has(normalized)) return true;
+      // 模糊匹配：检查是否包含已知公司名
+      for (const known of state._appliedCompanies) {
+        if (known.length < 2) continue;
+        if (normalized.includes(known) || known.includes(normalized)) return true;
+      }
+      return false;
+    },
+
+    markApplied(companyName) {
+      if (!companyName) return;
+      const normalized = this.normalize(companyName);
+      if (!normalized || normalized.length < 2) return;
+      if (!state._appliedCompanies) state._appliedCompanies = new Set();
+      state._appliedCompanies.add(normalized);
+      try { localStorage.setItem('bossAppliedCompanies', JSON.stringify([...state._appliedCompanies])); } catch (e) {}
+    },
+
+    loadFromStorage() {
+      try {
+        const raw = localStorage.getItem('bossAppliedCompanies');
+        state._appliedCompanies = raw ? new Set(JSON.parse(raw)) : new Set();
+      } catch (e) { state._appliedCompanies = new Set(); }
+    },
+  };

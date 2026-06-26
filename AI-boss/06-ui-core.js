@@ -380,10 +380,17 @@
         "如：杭州,滨江"
       );
 
+      const welfareFilterCol = this._createInputControl(
+        "福利包含：",
+        "welfare-filter",
+        "如：双休,五险一金"
+      );
+
       elements.includeInput = includeFilterCol.querySelector("input");
       elements.locationInput = locationFilterCol.querySelector("input");
+      elements.welfareInput = welfareFilterCol.querySelector("input");
 
-      filterRow.append(includeFilterCol, locationFilterCol);
+      filterRow.append(includeFilterCol, locationFilterCol, welfareFilterCol);
 
       elements.controlBtn = this._createTextButton(
         "启动海投",
@@ -558,7 +565,7 @@
       const dashboard = document.createElement("div");
       dashboard.id = "boss-dashboard";
       dashboard.style.cssText = "margin: 0 0 10px 0; padding: 8px 10px; background: var(--secondary-color); border-radius: 8px;";
-      dashboard.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--primary-color); margin-bottom: 4px;">📋 求职仪表盘</div><div id="dashboard-stats" style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; color: #666;"></div>';
+      dashboard.innerHTML = '<div style="font-size: 12px; font-weight: 600; color: var(--primary-color); margin-bottom: 4px;">📋 求职仪表盘</div><div id="dashboard-stats" style="display: flex; gap: 6px; flex-wrap: wrap; font-size: 10px; color: #666; margin-bottom: 6px;"></div><div id="dashboard-funnel" style="font-size: 10px;"></div>';
 
       // 面试日程卡片
       const interviewCard = document.createElement("div");
@@ -642,6 +649,38 @@
       container.innerHTML = items.map(i =>
         `<span style="background:#fff;border-radius:4px;padding:2px 6px;">${i.label} <b>${i.value}</b></span>`
       ).join("");
+      this._updateFunnel();
+    },
+
+    _updateFunnel() {
+      const funnel = document.getElementById("dashboard-funnel");
+      if (!funnel) return;
+      const stages = [
+        { key: "greetsSent", label: "今日投递", color: "#4285f4" },
+        { key: "hrReplies", label: "HR 回复", color: "#34a853" },
+        { key: "interviewInvites", label: "面试邀约", color: "#ea4335" },
+      ];
+      const values = stages.map(s => state.stats[s.key] || 0);
+      const maxVal = Math.max(1, ...values);
+      const maxWidth = 100;
+      const widths = values.map((v, i) => {
+        const rate = i === 0 ? maxWidth : Math.round((v / Math.max(1, values[i - 1])) * maxWidth);
+        return Math.max(5, rate);
+      });
+
+      const bars = stages.map((s, i) => {
+        const pct = values[0] > 0 ? Math.round((values[i] / values[0]) * 100) : 0;
+        return `<div style="display:flex;align-items:center;margin:2px 0;gap:4px;">
+          <span style="min-width:48px;text-align:right;color:#888;">${s.label}</span>
+          <div style="flex:1;background:#eee;border-radius:3px;height:16px;overflow:hidden;">
+            <div style="width:${widths[i]}%;height:100%;background:${s.color};border-radius:3px;transition:width .5s;"></div>
+          </div>
+          <span style="min-width:40px;font-weight:600;color:${s.color};">${values[i]}</span>
+          <span style="font-size:9px;color:#aaa;min-width:32px;">${i === 0 ? '' : pct + '%'}</span>
+        </div>`;
+      }).join("");
+
+      funnel.innerHTML = `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #eee;">${bars}</div>`;
     },
 
     _createTextButton(text, bgColor, onClick) {

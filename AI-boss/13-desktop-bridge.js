@@ -98,4 +98,32 @@
       } catch (e) {}
       return null;
     },
+
+    async pollAgentCommand() {
+      if (!await this.isAvailable()) return null;
+      try {
+        const resp = await fetch(this._baseUrl + '/api/agent/command', { signal: AbortSignal.timeout(3000) });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.ok && data.data && data.data.pending) {
+            const cmd = data.data.command;
+            // 执行 Agent 指令
+            if (cmd.action === 'start_apply' && typeof toggleProcess === 'function' && !state.isRunning) {
+              toggleProcess();
+              Core.log('🤖 Agent 指令: 启动海投');
+            } else if (cmd.action === 'stop_apply' && typeof toggleProcess === 'function' && state.isRunning) {
+              toggleProcess();
+              Core.log('🤖 Agent 指令: 停止海投');
+            }
+            // 确认执行
+            fetch(this._baseUrl + '/api/agent/command/ack', {
+              method: 'POST', headers: await this._authHeaders(),
+              body: JSON.stringify({ id: cmd.id }), signal: AbortSignal.timeout(3000),
+            }).catch(() => {});
+            return cmd;
+          }
+        }
+      } catch (e) {}
+      return null;
+    },
   };
