@@ -430,3 +430,12 @@ boss-helper/
   <img src="https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python" alt="Python">
 </p>
 
+
+
+  ## 技术栈 & 致谢
+
+  | 项目 
+  |------|
+  | [JobCopilot](https://github.com/huluobo2237-pixel/JobCopilot)) 
+
+  在此之上构建了 BossJob-Helper 的双端架构。
