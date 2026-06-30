@@ -1,20 +1,19 @@
-# BossJob-Helper
+# Boss Helper
 
-BOSS 直聘 AI 海投助手 — 浏览器脚本 + 桌面应用，双端配合实现智能求职自动化。
+BOSS 直聘 AI 海投助手 — Chrome 扩展（前端投递引擎）+ 桌面应用（后端数据中心），双端配合实现智能求职闭环。
 
-[![GitHub](https://img.shields.io/badge/GitHub-h1077%2FBossJob--Helper-blue)](https://github.com/h1077/BossJob-Helper)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-orange)](./LICENSE)
-[![Version](https://img.shields.io/badge/Version-3.0.0-green)]()
+[![Manifest](https://img.shields.io/badge/Manifest-V3-blue)](./extension/manifest.json)
+[![Python](https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python)](https://python.org)
 
 ---
 
 ## 目录
 
 - [快速开始](#快速开始)
-- [Boss_helper.js — 浏览器脚本](#boss_helperjs--浏览器脚本)
-- [Boss_helper.exe — 桌面应用](#boss_helperexe--桌面应用)
+- [extension — Chrome 扩展](#extension--chrome-扩展)
+- [desktop-app — 桌面应用](#desktop-app--桌面应用)
 - [双端协作](#双端协作)
-- [AI Agent 集成](#ai-agent-集成)
 - [AI 接口配置](#ai-接口配置)
 - [项目结构](#项目结构)
 - [常见问题](#常见问题)
@@ -24,294 +23,273 @@ BOSS 直聘 AI 海投助手 — 浏览器脚本 + 桌面应用，双端配合实
 
 ## 快速开始
 
-| 组件              | 用途       | 一句话说明                                               |
-| ----------------- | ---------- | -------------------------------------------------------- |
-| `Boss_helper.js`  | 浏览器脚本 | BOSS 直聘页面注入控制面板，自动打招呼、AI 回复、翻页投递 |
-| `Boss_helper.exe` | 桌面应用   | 本地仪表盘 + Agent API，数据持久化、岗位分析、导出报告   |
+| 组件           | 用途        | 一句话说明                                                   |
+| -------------- | ----------- | ------------------------------------------------------------ |
+| `extension/`   | Chrome 扩展 | BOSS 直聘侧边栏控制器，自动搜索、AI 筛选、审核确认、跨页面投递 |
+| `desktop-app/` | 桌面应用    | 本地仪表盘 + AI 安全代理 + 数据持久化 + Agent API            |
 
-**推荐同时使用两者**：脚本负责页面操作，桌面应用负责数据管理和 AI Agent 集成。
+**推荐同时使用两者**：扩展负责页面操作，桌面应用负责 AI 代理和数据管理。
 
----
+### 安装扩展
 
-## Boss_helper.js — 浏览器脚本
+1. 打开 `chrome://extensions`，`edge://extensions/`  右上角开启**开发者模式**
+2. 点「加载已解压缩的扩展程序」→ 选择 `extension/` 文件夹
+3. 点工具栏 🧩 → 固定 `Boss海投助手` 图标
 
-在 BOSS 直聘页面注入智能控制面板，自动化海投全流程。**零依赖，导入即用。**
+> ![image-20260630211405763](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211405763.png)
 
-### 安装步骤
-
-**第一步：安装脚本管理器**
-
-| 浏览器         | 推荐工具                 | 链接                                                         |
-| -------------- | ------------------------ | ------------------------------------------------------------ |
-| Chrome / Edge  | Tampermonkey             | [Chrome 商店](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo) |
-| Chrome / Edge  | ScriptCat                | [Chrome 商店](https://chromewebstore.google.com/detail/scriptcat/ndcooeabafpmejflghodcmfiepppeich) |
-| Firefox        | Tampermonkey             | [Firefox 附加组件](https://addons.mozilla.org/firefox/addon/tampermonkey/) |
-| Android (Kiwi) | ScriptCat / Tampermonkey | Kiwi 浏览器 + 扩展商店                                       |
-
-**第二步：导入脚本**
-
-1. 打开脚本管理器的管理面板
-2. 点击「新建脚本」或「导入」
-3. 将 `Boss_helper.js` 的全部内容粘贴进去，保存
-4. 确保脚本已启用（开关为 ON）
-
-![image-20260626234420535](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260626234420535.png)
-
-> **🖼️ [图 1]** 脚本导入示意图
-
-**第三步：配置 AI API**
-
-1. 打开 [BOSS 直聘职位页](https://www.zhipin.com/web/geek/job)
-2. 页面右侧出现 **AI-Boss 控制面板**
-3. 点击 🔵 AI 配置按钮，填入 API 信息
-
-![image-20260626234452618](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260626234452618.png)
-
-> ![image-20260626234530756](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260626234530756.png)
-
-**第四步：设置筛选 → 启动**
-
-1. 控制面板输入筛选条件：职位名 / 工作地 / 福利关键词
-2. 点击「启动海投」
-3. 脚本自动翻页、逐个沟通，AI 为每个岗位生成定制招呼语
-
-<!-- 📸 图片占位：海投运行中截图 -->
-
-> **🖼️ [图 3]** 海投运行界面（含福利筛选 + 翻页进度）
-
----
-
-### 功能详解
-
-#### 1. 千岗千面 AI 招呼语
-
-每个岗位单独调用 AI，结合你的简历和 JD 生成个性化招呼语。
-
-| 特性          | 说明                                                  |
-| ------------- | ----------------------------------------------------- |
-| 简历感知      | 有简历时，AI 结合真实经历 + JD 生成                   |
-| 无简历降级    | 没有简历也能从 JD 反向提取关键词生成                  |
-| 三级 Fallback | AI 失败 → 模板替换 → 硬编码兜底，保证永远有招呼语可发 |
-| 24h 缓存      | 已生成的招呼语按 jobId 缓存，不重复消耗 Token         |
-| 输出清理      | 统一去除 AI 废话前缀、代码块、HTML 标签               |
-
-<!-- 📸 图片占位：招呼语生成效果对比 -->
-
-> **🖼️ [图 4]** AI 招呼语 vs 固定语对比
-
-#### 2. 精确筛选系统
-
-控制面板支持三维筛选：
-
-| 筛选项     | 说明             | 示例                       |
-| ---------- | ---------------- | -------------------------- |
-| 职位名包含 | 逗号分隔多关键词 | `前端, React, TypeScript`  |
-| 工作地包含 | 支持多城市轮转   | `杭州, 滨江, 西湖`         |
-| 福利包含   | 按福利标签过滤   | `双休, 五险一金, 弹性工作` |
-
-![image-20260627000837182](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260627000837182.png)
-
-> **🖼️ [图 5]** 三维筛选输入
-
-#### 3. 翻页扫描 + 智能跳过
-
-| 特性           | 说明                                                    |
-| -------------- | ------------------------------------------------------- |
-| 翻页扫描       | 处理完当前页后自动翻页继续，默认最多 5 页               |
-| HR 活跃度过滤  | 自动跳过超过 14 天未活跃的 HR（可配置），节省配额       |
-| 公司去重       | 模糊匹配公司名（去后缀/去城市前缀），避免同公司重复投递 |
-| 招聘者状态筛选 | 多选：在线 / 刚刚活跃 / 3 日内活跃 / 本周活跃           |
-| 猎头过滤       | 可开启排除猎头岗位                                      |
-| 每日上限       | 默认 100 条，达上限自动停止（可配 0 禁用）              |
-
-#### 4. AI 智能聊天回复
-
-实时监听 HR 消息，AI 自动分析并生成回复，支持 **6 阶段对话策略**：
-
-```
-开场破冰 → 技术深挖 → 项目经验 → 综合素质 → 反问阶段 → 面试邀约
-```
-
-| 功能     | 说明                              |
-| -------- | --------------------------------- |
-| 自动回复 | 可开关，AI 生成后自动发送         |
-| 阶段感知 | 根据对话进展调整回复策略          |
-| 对话记忆 | 保留最近 6 条上下文，7 天自动清理 |
-| 拒绝识别 | 命中拒绝关键词自动加入黑名单      |
-| 简历发送 | 自动发送文本 / 图片简历           |
-
-<!-- 📸 图片占位：聊天回复界面截图 -->
-
-> **🖼️ [图 6]** AI 智能聊天回复
-
-#### 5. 公司评估 + 岗位匹配分析
-
-| 功能         | 说明                                                         | 触发方式                     |
-| ------------ | ------------------------------------------------------------ | ---------------------------- |
-| 快速评估     | `分数\|短评`，判断岗位靠不靠谱                               | 投递循环中自动运行           |
-| 深度匹配分析 | 6 维结构化报告：匹配度% / 匹配技能 / 技能差距 / 决策建议 / 风险点 / 建议提问 | 按需调用 `analyzeJobMatch()` |
-| 自动拒绝     | 评估 ≤ 6 分自动跳过，发送礼貌拒绝回复                        | 自动                         |
-| 24h 缓存     | 评估结果按「公司+岗位」缓存，同岗位不重复消耗 Token          | 自动                         |
-
-<!-- 📸 图片占位：岗位匹配分析报告截图 -->
-
-> **🖼️ [图 7]** 岗位匹配分析 6 维报告
-
-#### 6. AI 模拟面试
-
-选择真实岗位，AI 扮演 HR 进行 6 阶段模拟面试 + 自动出评估报告。
-
-![image-20260627000633038](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260627000633038.png)
-
-> **🖼️ [图 8]** AI 模拟面试 & 评估报告
-
-#### 7. 简历评分
-
-6 维度打分（教育背景 / 技术技能 / 项目经验 / 职业发展 / 软技能 / 简历质量），AI 优化严格遵守"不编造"原则。
-
-#### 8. 投递看板 + 漏斗
-
-控制面板内嵌实时仪表盘：
-
-| 组件     | 说明                                                |
-| -------- | --------------------------------------------------- |
-| 统计卡片 | 总岗位 / 高匹配 / 已投递 / 面试中 / 已拒绝          |
-| 投递漏斗 | 今日投递 → HR 回复 → 面试邀约，三色进度条 + 转化率% |
-| 周报     | 一键生成文字周报                                    |
-
-![image-20260627000700418](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260627000700418.png)
-
-> **🖼️ [图 9]** 投递看板 + 漏斗
-
-#### 9. 安全风控
-
-| 机制       | 说明                                                       |
-| ---------- | ---------------------------------------------------------- |
-| 随机间隔   | 操作间隔 3-8 秒随机化                                      |
-| 渐进式退避 | 连续失败 3 次后间隔自动倍增至 6x（最长 60s），成功逐步恢复 |
-| 每日上限   | 达上限自动停，防封号                                       |
-| 翻页延迟   | 翻页间隔 8 秒，模拟真人浏览                                |
-
----
-
-## Boss_helper.exe — 桌面应用
-
-本地运行的 Flask 桌面应用，提供仪表盘、数据持久化、**AI Agent API**。
-
-### 安装与启动
-
-**方式一：直接运行 .exe（推荐）**
-
-1. 下载 `Boss_helper.exe`
-2. 双击启动
-3. 浏览器自动打开 `http://localhost:5001`
-4. 系统托盘常驻，右键退出
-
-![image-20260627000727133](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260627000727133.png)
-
-> **🖼️ [图 10]** 桌面应用仪表盘首页
-
-**方式二：源码运行**
+### 启动桌面应用
 
 ```bash
-cd boss-desktop-app
+cd desktop-app
 pip install -r requirements.txt
 python app.py
 ```
 
-### 桌面应用功能详解
+浏览器自动打开 `http://localhost:5001` 仪表盘。
+
+> ![image-20260630210611374](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630210611374.png)
+
+### 三步跑通
+
+1. 点扩展图标 → 侧边栏填写：岗位关键词 + 城市 + AI API Key
+2. 点「开始收集 + 投递」→ 自动搜索 → AI 筛选 → 审核勾选 → 自动投递
+3. 桌面端仪表盘实时查看投递统计、导出数据
+
+> **🖼️<img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211548812.png" alt="image-20260630211548812" style="zoom: 50%;" />
+
+---
+
+## extension — Chrome 扩展
+
+Chrome Manifest V3 扩展，Service Worker 编排跨页面投递流程。**2028 行 JS，零框架零依赖。**
+
+### 功能详解
+
+#### 1. 多维度搜索
+
+| 筛选项      | 说明                     | 示例                   |
+| ----------- | ------------------------ | ---------------------- |
+| 岗位关键词  | 空格/逗号分隔，OR 匹配   | `售前顾问 Python开发`  |
+| 城市        | 多城市空格分隔，逐一搜索 | `深圳 北京 杭州`       |
+| 薪资范围    | 点选 BOSS 薪资区间       | 10-20K / 20-50K        |
+| 福利筛选    | 逗号分隔，AND 匹配       | `双休,五险一金,不加班` |
+| HR 活跃状态 | 多选：在线/今日/3日/本周 | `在线, 刚刚活跃`       |
+| 排除猎头    | 开关控制                 | ✅ 开启后自动跳过       |
+| 公司黑名单  | 一行一个公司名           | 模糊匹配跳过           |
+
+> **🖼️ [图 4]** 搜索配置面板
+
+#### 2. AI 智能筛选 + 审核确认
+
+```
+收集岗位 → AI 简历匹配评分 → 排除不匹配 → 审核列表 → 你勾选 → 投递选中
+```
+
+- **简历匹配度预筛**：提取简历关键词，对每个岗位打分（标题 2 分 / 描述 1 分），低于阈值自动跳过
+- **公司背景评估**：AI 分析 JD 靠谱度（1-10 分），低分自动拒绝
+- **HR 职级排序**：同一公司多 HR 按职级评分（经理 100 > HRBP 90 > 专员 30），优先发给职级最高的
+- **法人/老板识别**：自动标记 HR 就是老板的「直招」岗位，显示 👔 标签
+- **审核确认机制**：筛选后列出所有匹配岗位（附匹配分+公司+薪资+HR），你勾选确认后才开始投递
+
+> **🖼️<img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211611967.png" alt="image-20260630211611967" style="zoom:50%;" />
+
+#### 3. 千岗千面 AI 招呼语
+
+每个岗位单独调用 AI，交叉引用简历 + 简历分析 + JD + 自定义提示词生成个性化招呼语。
+
+| 特性     | 说明                                                       |
+| -------- | ---------------------------------------------------------- |
+| 交叉引用 | 同时读取简历文字、简历 6 维分析、岗位 JD、用户自定义提示词 |
+| 格式规范 | 「您好，熟悉XXX、XXX，做过XXX…」80-120 字                  |
+| 策略注入 | 激进/均衡/保守三种对话策略影响语气                         |
+| 24h 缓存 | 同一岗位不重复消耗 Token                                   |
+| 降级链   | AI 失败 → 招呼语模板 → 硬编码默认语                        |
+
+> **🖼️ <img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211703517.png" alt="image-20260630211703517" style="zoom:50%;" />
+
+#### 4. JD 深度分析
+
+审核列表中每个岗位旁有 [📊 分析] 按钮，点击后 AI 输出 8 字段结构化报告：
+
+- 匹配评分（0-100）+ 投递建议（投递/谨慎/跳过）
+- 关键技能列表 + 技能缺口
+- 投递建议 + 匹配理由 + 风险提示
+- 建议追问的问题列表
+
+> ![image-20260630211824836](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211824836.png)
+
+#### 5. 智能调度 + 安全风控
+
+| 机制         | 说明                                                   |
+| ------------ | ------------------------------------------------------ |
+| 工作日投递   | 周末自动暂停，周一恢复                                 |
+| 午休避让     | 12:00-14:00 自动暂停                                   |
+| 自适应间隔   | 每 3 个岗位自动休息 30 秒                              |
+| 智能延迟     | 正常 3-5 秒随机，失败后指数退避（6s→12s→24s→48s→120s） |
+| 风控检测     | 检测验证码/限频/封禁关键词，命中立即跳大延迟           |
+| 连续异常保护 | 连续 6 次失败自动暂停，防止封号                        |
+| 每日上限     | 可配置，达上限自动停止                                 |
+
+#### 6. 自动发简历 + AI 回复
+
+- 自动发送附件简历和图片简历（多张，按岗位关键词匹配）
+- 聊天页 `MutationObserver` 实时监听 HR 新消息，AI 自动生成回复
+- 自动交换联系方式（微信/电话）
+
+> <img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211907512.png" alt="image-20260630211907512" style="zoom:50%;" />
+
+#### 7. 求职仪表盘 + 周报
+
+| 组件        | 说明                                                  |
+| ----------- | ----------------------------------------------------- |
+| 统计卡片    | 总岗位 / 高匹配(≥7分) / 已投递 / 面试中 / 已拒绝      |
+| 投递漏斗    | 今日投递 → HR 回复 → 面试邀约，三色进度条 + 转化率    |
+| 面试追踪    | 手动添加面试（公司/岗位/时间），列表管理              |
+| 周报        | 一键生成：本周投递数、回复率、面试邀约率、转化率      |
+| JD 需求分析 | AI 从已收集岗位中提取高频技能 + 最值钱方向 + 补充建议 |
+
+> **🖼️ [图 9]** 仪表盘 + 漏斗
+
+#### 8. 多份简历 + 6 维评分
+
+| 功能       | 说明                                                         |
+| ---------- | ------------------------------------------------------------ |
+| 多简历管理 | 上传文件时命名（如"Python开发""售前顾问"），下拉切换         |
+| 6 维评分   | 桌面端 AI 分析：学历(15)+技能(25)+经验(30)+成长(15)+软技能(10)+质量(5) |
+| 分析注入   | 评分结果自动注入招呼语生成和 JD 分析中                       |
+
+> **🖼️ [图 10]** 简历管理 + 6 维评分
+
+#### 9. 桌面桥接
+
+扩展通过 `localhost:5001` 与桌面应用通信：
+
+| 桥接功能       | 说明                                               |
+| -------------- | -------------------------------------------------- |
+| AI 安全代理    | API Key 只在桌面端，扩展不暴露密钥                 |
+| 岗位同步       | 投递成功自动同步到桌面 SQLite 数据库               |
+| 报表导出       | 一键导出 CSV / Excel                               |
+| Agent 远程控制 | 每 10 秒轮询命令队列，支持 Claude/GPT 远程启停投递 |
+| 启动同步       | 扩展启动时拉回桌面端已存岗位和简历                 |
+
+---
+
+## desktop-app — 桌面应用
+
+本地 Flask 服务器（`127.0.0.1:5001`），提供仪表盘、数据持久化、AI 安全代理和 Agent API。
+
+### 启动方式
+
+**方式一：源码运行**
+
+```bash
+cd desktop-app
+pip install -r requirements.txt
+python app.py
+```
+
+**方式二：点击 .exe文件启动**
+使用 点击.exe 后缀文件双击运行，自动打开浏览器。
+
+### 功能详解
 
 #### 1. 仪表盘与统计
 
-实时展示：今日投递 / 回复率 / 面试邀约 / 投递漏斗 / Pipeline 分布。
+实时展示：今日投递数 / 回复率 / 面试邀约 / 14 天趋势柱状图 / Pipeline 分布。
+
+> <img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630212021860.png" alt="image-20260630212021860" style="zoom:50%;" />
 
 #### 2. 岗位追踪 & 导出
 
-自动收集脚本端投递的每个岗位，一键导出 **CSV / Excel / JSON**。
+| 功能     | 说明                                       |
+| -------- | ------------------------------------------ |
+| 岗位列表 | 分页表格，支持按公司/岗位/状态搜索筛选     |
+| 状态管理 | 已投递 / 面试中 / 感兴趣 / 已拒绝          |
+| 数据导出 | CSV / Excel (XLSX) / JSON 三种格式         |
+| 自动同步 | 扩展投递后自动 POST 到 `/api/jobs/collect` |
 
-#### 3. AI 代理
+#### 3. AI 安全代理
 
-| 特性       | 说明                                                        |
-| ---------- | ----------------------------------------------------------- |
-| 多供应商   | DeepSeek / OpenAI / 硅基流动 / 火山引擎                     |
-| 密钥安全   | API Key 加密存储于本地 SQLite                               |
-| Token 代理 | 脚本 AI 请求通过 `DesktopBridge` 转发，Key 不暴露在浏览器端 |
+| 特性       | 说明                                                      |
+| ---------- | --------------------------------------------------------- |
+| 多供应商   | DeepSeek / OpenAI / 硅基流动 / 火山引擎 / 自定义          |
+| 密钥加密   | API Key 使用 Fernet 加密存储于本地 SQLite（机器指纹绑定） |
+| Token 代理 | 扩展 AI 请求通过 `/api/ai/proxy` 转发，Key 不暴露到浏览器 |
+| 速率限制   | 端点级 IP 滑动窗口限流                                    |
 
-#### 4. Agent API（新增）
+#### 4. JD 深度分析
 
-桌面应用暴露 **7 个 REST 端点**，供 AI Agent（Claude / GPT / Cursor）直接调用：
+端点 `POST /api/ai/analyze-jd`，结合简历和 JD 输出 8 字段结构化报告（匹配评分、关键技能、技能缺口、建议追问等），24h 缓存。
+
+#### 5. AI 模拟面试
+
+- **6 阶段面试流程**：开场破冰 → 技术深挖 → 项目经验 → 综合素质 → 反问阶段 → 结束报告
+- **简历感知**：AI 扮演目标公司 HR，根据你的简历和岗位 JD 提问
+- **逐题评分**：4 维度打分（技术准确度/完整度/实践经验/清晰度）
+- **评估报告**：总分 + 优势 + 弱项 + 改进建议
+- **会话历史**：支持回看过往面试记录
+
+> <img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630212044795.png" alt="image-20260630212044795" style="zoom:50%;" />
+
+#### 6. Agent API
+
+7 个 REST 端点，供 AI Agent（Claude / GPT / Cursor）直接调用：
 
 ```
 GET  /api/agent/status        # 当前状态
-GET  /api/agent/stats         # 投递漏斗数据
+GET  /api/agent/stats         # 投递漏斗
 GET  /api/agent/jobs          # 岗位列表
 POST /api/agent/command       # 发送指令（start_apply / stop_apply）
-GET  /api/agent/command       # JS 脚本轮询指令
+GET  /api/agent/command       # 扩展轮询指令
 POST /api/agent/command/ack   # 确认指令完成
-POST /api/agent/analyze       # AI 岗位匹配分析
+POST /api/agent/analyze       # AI 岗位分析
 ```
 
 所有响应统一 JSON 信封：`{"ok": true/false, "data": {...}, "error": null}`
+
+#### 7. 简历 6 维评分
+
+端点 `POST /api/ai/analyze`，AI 分析简历输出：学历背景(15) / 技术技能(25) / 工作经验(30) / 职业成长(15) / 软技能(10) / 简历质量(5)，总分 100。
+
+#### 8. 数据安全
+
+| 措施      | 说明                                                     |
+| --------- | -------------------------------------------------------- |
+| 本地运行  | 127.0.0.1 监听，不暴露到公网                             |
+| 密钥加密  | Fernet + 机器指纹（COMPUTERNAME+USERNAME），换机不可解密 |
+| 速率限制  | 防止本地恶意调用                                         |
+| CORS 限制 | 仅允许 localhost 和 zhipin.com 来源                      |
 
 ---
 
 ## 双端协作
 
 ```
-┌─────────────────────────┐     ┌──────────────────────────┐
-│   Boss_helper.js        │     │   Boss_helper.exe        │
-│   (浏览器 Tampermonkey)  │────▶│   (本地 localhost:5001)   │
-│                         │     │                          │
-│   · 页面 DOM 操作        │     │   · SQLite 数据持久化      │
-│   · 打招呼 / 聊天        │     │   · AI API 代理            │
-│   · 翻页扫描             │     │   · 仪表盘 & 统计          │
-│   · Pipeline 看板        │     │   · CSV/Excel 导出         │
-│   · 投递漏斗             │     │   · Agent API (7端点)      │
-│   · localStorage 缓存    │     │   · 本地加密存储           │
-│   · DesktopBridge ───────┼────▶│   · 指令队列 → JS 轮询    │
-└─────────────────────────┘     └──────────────────────────┘
+┌─────────────────────────┐     HTTP      ┌──────────────────────────┐
+│   extension              │ ←──────────→ │   desktop-app             │
+│   (Chrome 扩展, 前端)     │  localhost    │   (Flask, 后端)           │
+│                          │     :5001     │                          │
+│ ① 投递引擎               │ ──collect──→ │ ② 岗位数据库 (SQLite)     │
+│ ③ 简历分析 →             │ ──analyze──→ │   6维评分 (学历/技能/...)  │
+│ ④ 招呼语生成 →           │ ──proxy────→ │   AI代理 (密钥安全)        │
+│ ⑤ JD分析 →               │ ──analyze-jd→│   8字段结构化报告           │
+│ ⑥ 数据导出 ←             │ ←──export─── │   CSV / Excel / JSON      │
+│ ⑦ 面试模拟 ←             │ ←──open───── │   6阶段AI面试              │
+│ ⑧ Agent命令 ←            │ ←──command── │   远程控制 (启/停投递)     │
+└─────────────────────────┘              └──────────────────────────┘
 ```
 
-| 职责                   |  脚本 (JS)   |    桌面应用 (exe)    |
-| ---------------------- | :----------: | :------------------: |
-| 批量打招呼 / 页面操作  |     ✅ 主     |  辅助（Agent 指令）  |
-| 实时聊天监听 + AI 回复 |     ✅ 主     |          ❌           |
-| 图片简历发送           |    ✅ 独有    |          ❌           |
-| 翻页扫描投递           |     ✅ 主     |          ❌           |
-| 福利筛选               |     ✅ 主     |          ❌           |
-| Pipeline 看板 + 漏斗   |     ✅ 主     |         辅助         |
-| 公司去重 / HR 过滤     |      ✅       |          ❌           |
-| JD 深度分析 + 匹配报告 |     ✅ 主     | ✅ 辅助（Agent 端点） |
-| 数据导出 (CSV/Excel)   |      ❌       |         ✅ 主         |
-| AI Key 加密存储        |      ❌       |         ✅ 主         |
-| Agent API              |      ❌       |        ✅ 独有        |
-| 数据持久化             | localStorage |        SQLite        |
-
----
-
-## AI Agent 集成
-
-Boss_helper.exe 启动后，AI Agent 可通过 HTTP 直接操控海投：
-
-```bash
-# 查状态
-curl http://localhost:5001/api/agent/status
-
-# 查今日统计
-curl http://localhost:5001/api/agent/stats
-
-# 发指令开始投递
-curl -X POST http://localhost:5001/api/agent/command \
-  -H "Content-Type: application/json" \
-  -d '{"action":"start_apply"}'
-
-# AI 分析岗位
-curl -X POST http://localhost:5001/api/agent/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"company_name":"XX科技","position_name":"前端","jd_text":"..."}'
-```
-
-**数据流**：Agent → HTTP POST → Boss_helper.exe（指令队列）→ JS 脚本轮询 → 执行 → ACK。
+| 职责                   |   扩展   |  桌面应用  |
+| ---------------------- | :------: | :--------: |
+| DOM 操作 / 点击 / 发送 |    ✅     |     —      |
+| 页面抓取 / 翻页        |    ✅     |     —      |
+| AI 调用（密钥安全）    |    —     |     ✅      |
+| 数据持久化（SQLite）   |    —     |     ✅      |
+| 数据分析 / 聚合        |    —     |     ✅      |
+| 数据导出（CSV/Excel）  |    —     |     ✅      |
+| 仪表盘 UI              |  侧边栏  | 网页仪表盘 |
+| 接受 AI Agent 控制     | 轮询执行 | ✅ 命令队列 |
 
 ---
 
@@ -319,71 +297,61 @@ curl -X POST http://localhost:5001/api/agent/analyze \
 
 ### 推荐供应商
 
-| 供应商                 |  新用户额度   |     兼容性      | 获取地址                                                 |
-| ---------------------- | :-----------: | :-------------: | -------------------------------------------------------- |
-| 硅基流动 (SiliconFlow) | 2000 万 Token | DeepSeek / Qwen | [siliconflow.cn](https://siliconflow.cn)                 |
-| DeepSeek 官方          | 1000 万 Token |   DeepSeek-V3   | [platform.deepseek.com](https://platform.deepseek.com)   |
-| 火山引擎 (豆包)        |  50 万 Token  | DeepSeek / 豆包 | [console.volcengine.com](https://console.volcengine.com) |
-| OpenAI 官方            |     付费      |     GPT-4o      | [platform.openai.com](https://platform.openai.com)       |
+| 供应商                 |  新用户额度   | 获取地址                                                 |
+| ---------------------- | :-----------: | -------------------------------------------------------- |
+| 硅基流动 (SiliconFlow) | 2000 万 Token | [siliconflow.cn](https://siliconflow.cn)                 |
+| DeepSeek 官方          | 1000 万 Token | [platform.deepseek.com](https://platform.deepseek.com)   |
+| 火山引擎 (豆包)        |  50 万 Token  | [console.volcengine.com](https://console.volcengine.com) |
+| OpenAI 官方            |     付费      | [platform.openai.com](https://platform.openai.com)       |
 
-### 配置格式
+### 配置方式
 
-| 字段    | 示例值                                           |
-| ------- | ------------------------------------------------ |
-| API URL | `https://api.siliconflow.cn/v1/chat/completions` |
-| API Key | `sk-xxxxxxxxxxxxxxxxxxxxxxxx`                    |
-| Model   | `deepseek-ai/DeepSeek-V3`                        |
+**扩展侧边栏**：② AI 配置区填写 API Key / URL / Model，支持预设按钮一键填充。
 
-脚本端在控制面板 AI 配置弹窗填写；桌面端在 `http://localhost:5001` 设置页填写。
+**桌面端**：仪表盘 → AI 设置页，密钥加密存储。
+
+**桌面桥接开启后**：扩展通过桌面端代理调用 AI，不需要在扩展中配置 Key。
 
 ---
 
 ## 项目结构
 
 ```
-BossJob-Helper/
+boss-helper/
 │
-├── Boss_helper.js                 # 浏览器脚本（9145 行，导入 Tampermonkey/ScriptCat）
-├── Boss_helper.exe                # 桌面应用可执行文件（PyInstaller 打包）
+├── extension/                     # Chrome 扩展（前端投递引擎）
+│   ├── manifest.json              #   Manifest V3
+│   ├── icons/                     #   扩展图标
+│   └── src/
+│       ├── background.js          #   Service Worker 编排引擎 (697行)
+│       ├── content-search.js      #   搜索页注入 (153行)
+│       ├── content-chat.js        #   聊天页注入 (220行)
+│       ├── selectors.js           #   共享选择器+城市编码+配置 (56行)
+│       ├── sidepanel.html         #   侧边栏 UI 布局
+│       ├── sidepanel.js           #   侧边栏交互逻辑 (902行)
+│       └── sidepanel.css          #   侧边栏样式
 │
-├── AI-boss/                       # 脚本源码（模块化开发）
-│   ├── 00-header.js               #   UserScript 头部元信息
-│   ├── 01-config.js               #   全局配置 & 常量（含所有阈值）
-│   ├── 02-state.js                #   全局状态管理
-│   ├── 03-utils.js                #   工具函数 + CompanyDedup 公司去重
-│   ├── 04-storage.js              #   localStorage 封装 + AICache 缓存层
-│   ├── 05-hr-interaction.js       #   HR 交互 + 招呼语发送（含 fallback）
-│   ├── 06-ui-core.js              #   控制面板 UI（含漏斗图）
-│   ├── 07-settings.js             #   设置面板
-│   ├── 08-core.js                 #   核心逻辑（海投/翻页/退避/匹配分析）
-│   ├── 09-conversation.js         #   6 阶段对话策略
-│   ├── 10-process.js              #   流程控制（启停/参数读取）
-│   ├── 11-extras.js               #   附加功能（简历评分、模拟面试、周报）
-│   ├── 12-footer.js               #   初始化入口 & 收尾
-│   ├── 13-desktop-bridge.js       #   桌面应用桥接 + Agent 指令轮询
-│   └── build.js                   #   构建脚本（node build.js）
-│
-├── boss-desktop-app/              # 桌面应用（Flask + SQLite）
-│   ├── app.py                     #   应用入口
-│   ├── config.py                  #   配置文件
-│   ├── models.py                  #   数据库模型
+├── desktop-app/                   # 桌面应用（后端数据中心）
+│   ├── app.py                     #   Flask 入口
+│   ├── config.py                  #   配置
+│   ├── models.py                  #   SQLAlchemy 模型
 │   ├── requirements.txt           #   Python 依赖
-│   ├── routes/                    #   API 路由
-│   │   ├── ai.py                  #     AI 代理 & 对话
-│   │   ├── agent.py               #     Agent API（7 端点）★新增
-│   │   ├── jobs.py                #     岗位追踪 & 导出
-│   │   ├── resumes.py             #     简历管理
-│   │   └── analytics.py           #     统计接口
-│   ├── utils/                     #   工具模块
-│   │   ├── auth.py                #     JWT 认证
-│   │   ├── crypto.py              #     加密工具
-│   │   └── rate_limit.py          #     速率限制
-│   ├── static/                    #   前端静态文件
-│   │   ├── index.html             #     仪表盘页面
-│   │   ├── css/                   #     样式
-│   │   └── js/                    #     前端逻辑
-│   ├── data/                      #   运行时数据（自动创建）
-│   └── build/                     #   构建输出 & spec
+│   ├── routes/
+│   │   ├── ai.py                  #   AI 代理 / JD分析 / 面试 / 简历评分
+│   │   ├── agent.py               #   Agent API (7端点)
+│   │   ├── jobs.py                #   岗位追踪 & 导出
+│   │   ├── resumes.py             #   简历管理
+│   │   └── analytics.py           #   统计
+│   ├── utils/
+│   │   ├── auth.py                #   认证
+│   │   ├── crypto.py              #   加密 (Fernet)
+│   │   └── rate_limit.py          #   速率限制
+│   ├── static/                    #   仪表盘前端
+│   │   ├── index.html
+│   │   ├── css/
+│   │   └── js/
+│   ├── data/                      #   运行时数据 (自动创建)
+│   └── build/                     #   PyInstaller 构建
 │
 ├── README.md                      # 本文件
 └── LICENSE                        # AGPL-3.0
@@ -393,46 +361,49 @@ BossJob-Helper/
 
 ## 常见问题
 
-### Q: 脚本导入后不显示控制面板？
+### Q: 扩展安装后不显示侧边栏？
 
-1. 确保已打开 `https://www.zhipin.com/web/*` 下的页面
-2. 检查脚本管理器是否已启用该脚本
-3. 打开浏览器控制台 (F12) 查看是否有红色报错
-4. ScriptCat 用户注意：脚本已兼容 `document.readyState` 检查
+1. 点工具栏 🧩 图标 → 找到「Boss海投助手」→ 点击即可打开侧边栏
+2. 确保已打开 `zhipin.com` 页面
 
-### Q: 海投提示"未配置 AI API"？
+### Q: 点击「开始收集」没有反应？
 
-点击控制面板顶部的 AI 配置按钮填入 API 信息。或启动桌面应用，脚本自动通过本地代理调用 AI。
+检查侧边栏 ↓
 
-### Q: 启动后翻了几页就停了？
+1. 岗位关键词是否已填写
+2. AI API Key 是否已配置（或在扩展中配置，或启动桌面端开启桥接）
+3. 查看日志区的提示
 
-检查：① 每日投递上限是否已达（默认 100）② 当前轮次是否已达到最大翻页数（默认 5 页）③ 翻页按钮是否不存在（已是最后一页）。
+### Q: 投递越来越慢甚至停了？
+
+这是**智能风控**在工作：连续失败后自动指数退避，成功后逐渐恢复。如果连续 6 次失败会暂停，需手动恢复。关闭「智能调度」开关可停用。
+
+### Q: 桌面端连接不上？
+
+1. 确认 `python app.py` 已启动，日志显示 `Running on http://127.0.0.1:5001`
+2. 扩展侧边栏 AI 配置区查看「桌面桥接」状态
+3. 检查 5001 端口是否被占用
 
 ### Q: 为什么有些岗位被跳过了？
 
-脚本跳过岗位有 5 种原因，日志会明确标注：
+日志会明确标注跳过原因：
 
 1. HR 超过 14 天未活跃
-2. 已投递过该公司（模糊匹配）
-3. 福利不匹配
-4. 招聘者状态不匹配
-5. 公司评估 ≤ 6 分自动拒绝
+2. 已投递过该公司（模糊去重）
+3. 公司黑名单命中
+4. 简历匹配分低于阈值（默认 3 分）
+5. 公司评估分 ≤ 6 分自动拒绝
+6. 福利不匹配
+7. 猎头岗位（开启排除后）
 
-### Q: 操作越来越慢？
+### Q: 数据存储在哪？
 
-这是**渐进式退避**机制：连续 3 次操作失败后，间隔自动增加到 6 倍。成功几次后会恢复正常。2 分钟无失败也会自动重置。
-
-### Q: 桌面应用启动后浏览器没打开？
-
-手动访问 `http://localhost:5001`。如无法访问，检查 5001 端口是否被占用。
-
-### Q: 能用 Claude / GPT 控制脚本吗？
-
-可以。启动 Boss_helper.exe 后，Agent 通过 HTTP 调用 `/api/agent/*` 端点即可。详见 [AI Agent 集成](#ai-agent-集成)。
+- 扩展：Chrome `chrome.storage.local`（浏览器级）
+- 桌面端：`desktop-app/data/boss_desktop.db`（SQLite，跨会话持久）
 
 ### Q: 如何卸载？
 
-删除 `Boss_helper.exe` 和 `boss-desktop-app/` 文件夹即可。浏览器端在脚本管理器中删除脚本。
+`chrome://extensions` → 移除「Boss海投助手」。删除 `boss-helper/` 文件夹。
 
 ---
 
@@ -446,16 +417,11 @@ BossJob-Helper/
 
 ---
 
-> **不是帮你投简历，是帮你省出时间准备面试。**  
 > **让机械操作归脚本，让你专心准备面试。**
 
 <p align="center">
-  <a href="https://github.com/h1077/BossJob-Helper">
-    <img src="https://img.shields.io/badge/GitHub-View%20on%20GitHub-blue?logo=github" alt="GitHub">
-  </a>
-  <a href="./LICENSE">
-    <img src="https://img.shields.io/badge/License-AGPL--3.0-orange" alt="License">
-  </a>
-  <img src="https://img.shields.io/badge/Version-3.0.0-green" alt="Version">
+  <img src="https://img.shields.io/badge/License-AGPL--3.0-orange" alt="License">
+  <img src="https://img.shields.io/badge/Manifest-V3-blue" alt="Manifest V3">
+  <img src="https://img.shields.io/badge/Python-≥3.10-3776AB?logo=python" alt="Python">
 </p>
 
