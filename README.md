@@ -43,7 +43,7 @@ BOSS 直聘 AI 海投助手 — Chrome 扩展（前端投递引擎）+ 桌面应
 
 
 
-浏览器自动打开 `http://localhost:5001` 仪表盘。
+双击Boss_helper.exe运行，浏览器自动打开 `http://localhost:5001` 仪表盘。
 
 <img width="935" height="550" alt="02" src="https://github.com/user-attachments/assets/51482c1a-641c-480e-a617-f7e5c3ecf4bc"  />
 
