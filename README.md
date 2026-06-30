@@ -35,20 +35,18 @@ BOSS 直聘 AI 海投助手 — Chrome 扩展（前端投递引擎）+ 桌面应
 1. 打开 `chrome://extensions`，`edge://extensions/`  右上角开启**开发者模式**
 2. 点「加载已解压缩的扩展程序」→ 选择 `extension/` 文件夹
 3. 点工具栏 🧩 → 固定 `Boss海投助手` 图标
+<img width="2354" height="1132" alt="01" src="https://github.com/user-attachments/assets/0b7d537c-b8ca-4872-8ec9-427821d0a017"  style="zoom: 50%;" />
 
-> ![image-20260630211405763](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211405763.png)
+
 
 ### 启动桌面应用
 
-```bash
-cd desktop-app
-pip install -r requirements.txt
-python app.py
-```
+
 
 浏览器自动打开 `http://localhost:5001` 仪表盘。
 
-> ![image-20260630210611374](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630210611374.png)
+<img width="1876" height="1157" alt="02" src="https://github.com/user-attachments/assets/51482c1a-641c-480e-a617-f7e5c3ecf4bc"  style="zoom: 50%;" />
+
 
 ### 三步跑通
 
@@ -56,7 +54,8 @@ python app.py
 2. 点「开始收集 + 投递」→ 自动搜索 → AI 筛选 → 审核勾选 → 自动投递
 3. 桌面端仪表盘实时查看投递统计、导出数据
 
-> **🖼️<img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211548812.png" alt="image-20260630211548812" style="zoom: 50%;" />
+<img width="582" height="983" alt="03" src="https://github.com/user-attachments/assets/f5141f10-5fc7-4bf4-b0e4-e84046312962"  style="zoom: 50%;" />
+
 
 ---
 
@@ -92,7 +91,8 @@ Chrome Manifest V3 扩展，Service Worker 编排跨页面投递流程。**2028 
 - **法人/老板识别**：自动标记 HR 就是老板的「直招」岗位，显示 👔 标签
 - **审核确认机制**：筛选后列出所有匹配岗位（附匹配分+公司+薪资+HR），你勾选确认后才开始投递
 
-> **🖼️<img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211611967.png" alt="image-20260630211611967" style="zoom:50%;" />
+<img width="593" height="1320" alt="04" src="https://github.com/user-attachments/assets/328603d6-7ec3-4aaf-b8e4-2451efeabfad"  style="zoom: 50%;" />
+
 
 #### 3. 千岗千面 AI 招呼语
 
@@ -106,7 +106,8 @@ Chrome Manifest V3 扩展，Service Worker 编排跨页面投递流程。**2028 
 | 24h 缓存 | 同一岗位不重复消耗 Token                                   |
 | 降级链   | AI 失败 → 招呼语模板 → 硬编码默认语                        |
 
-> **🖼️ <img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211703517.png" alt="image-20260630211703517" style="zoom:50%;" />
+<img width="534" height="1062" alt="05" src="https://github.com/user-attachments/assets/2affd914-2805-4147-8419-f71f86abe8de"  style="zoom: 50%;" />
+
 
 #### 4. JD 深度分析
 
@@ -117,7 +118,8 @@ Chrome Manifest V3 扩展，Service Worker 编排跨页面投递流程。**2028 
 - 投递建议 + 匹配理由 + 风险提示
 - 建议追问的问题列表
 
-> ![image-20260630211824836](C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211824836.png)
+<img width="547" height="394" alt="06" src="https://github.com/user-attachments/assets/395a281a-9082-4532-81f0-25ef7ba3d08e"  style="zoom: 50%;" />
+
 
 #### 5. 智能调度 + 安全风控
 
@@ -137,7 +139,8 @@ Chrome Manifest V3 扩展，Service Worker 编排跨页面投递流程。**2028 
 - 聊天页 `MutationObserver` 实时监听 HR 新消息，AI 自动生成回复
 - 自动交换联系方式（微信/电话）
 
-> <img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630211907512.png" alt="image-20260630211907512" style="zoom:50%;" />
+<img width="533" height="889" alt="07" src="https://github.com/user-attachments/assets/23534340-1e9a-4fa6-8ce7-3580f53c4b42"  style="zoom: 50%;" />
+
 
 #### 7. 求职仪表盘 + 周报
 
@@ -198,7 +201,8 @@ python app.py
 
 实时展示：今日投递数 / 回复率 / 面试邀约 / 14 天趋势柱状图 / Pipeline 分布。
 
-> <img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630212021860.png" alt="image-20260630212021860" style="zoom:50%;" />
+<img width="1907" height="944" alt="08" src="https://github.com/user-attachments/assets/cff0a561-3f9b-48c3-a6ec-d7f9da04c092"  style="zoom: 50%;" />
+
 
 #### 2. 岗位追踪 & 导出
 
@@ -230,7 +234,8 @@ python app.py
 - **评估报告**：总分 + 优势 + 弱项 + 改进建议
 - **会话历史**：支持回看过往面试记录
 
-> <img src="C:\Users\hu\AppData\Roaming\Typora\typora-user-images\image-20260630212044795.png" alt="image-20260630212044795" style="zoom:50%;" />
+<img width="1921" height="782" alt="09" src="https://github.com/user-attachments/assets/4c8d9f68-d735-4bfe-a68d-3700ac2c2cc4"  style="zoom: 50%;" />
+
 
 #### 6. Agent API
 
@@ -417,7 +422,7 @@ boss-helper/
 
 ---
 
-> **让机械操作归脚本，让你专心准备面试。**
+> **让重复的操作交给插件，让你专心准备面试。**
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-AGPL--3.0-orange" alt="License">
