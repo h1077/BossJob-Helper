@@ -1,37 +1,14 @@
 /**
  * 模拟面试 — AI 扮演 HR，根据 JD + 简历分阶段提问
+ * 支持两种模式：
+ *   1) 模态框直接输入 JD 文字 + 简历文字（推荐，无需前置数据）
+ *   2) 从下拉框选择已有岗位+简历（兼容旧流程）
  */
 const Interview = {
   sessionId: null,
   phaseLabels: { opening:'开场', technical:'技术深挖', experience:'项目经验', behavioral:'综合素质', reverse:'候选人反问', closing:'结束' },
 
   async init() {
-    // 加载岗位列表
-    const jobsRes = await fetch('/api/jobs/interested?per_page=200', { headers: authHeaders() }).then(r => r.json());
-    const jobSelect = document.getElementById('interview-job-select');
-    jobSelect.innerHTML = '<option value="">-- 选择岗位 --</option>';
-    if (jobsRes.success) {
-      jobsRes.data.jobs.forEach(j => {
-        const opt = document.createElement('option');
-        opt.value = j.id;
-        opt.textContent = `${j.companyName} — ${j.jobName}`;
-        jobSelect.appendChild(opt);
-      });
-    }
-
-    // 加载简历列表
-    const resumeRes = await fetch('/api/resumes', { headers: authHeaders() }).then(r => r.json());
-    const resumeSelect = document.getElementById('interview-resume-select');
-    resumeSelect.innerHTML = '<option value="">-- 选择简历 --</option>';
-    if (resumeRes.success) {
-      resumeRes.data.forEach(r => {
-        const opt = document.createElement('option');
-        opt.value = r.id;
-        opt.textContent = r.title;
-        resumeSelect.appendChild(opt);
-      });
-    }
-
     // 加载历史面试记录
     this.loadHistory();
   },
@@ -56,11 +33,45 @@ const Interview = {
 
   phaseLabel(p) { return this.phaseLabels[p] || p; },
 
-  async start() {
-    const jobId = document.getElementById('interview-job-select').value;
-    const resumeId = document.getElementById('interview-resume-select').value;
-    if (!jobId) { alert('请先选择一个岗位'); return; }
-    if (!resumeId) { alert('请先选择一份简历'); return; }
+  // ── 模态框 ──
+
+  async openModal() {
+    document.getElementById('interview-modal-overlay').classList.remove('hidden');
+    document.getElementById('modal-interview-company').focus();
+
+    // 加载已保存的简历到下拉框
+    const select = document.getElementById('modal-interview-resume-select');
+    select.innerHTML = '<option value="">-- 从简历管理导入，或下方手动输入 --</option>';
+    try {
+      const res = await fetch('/api/resumes', { headers: authHeaders() }).then(r => r.json());
+      if (res.success && res.data.length) {
+        res.data.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r.id;
+          opt.textContent = r.title;
+          // 把简历内容存在 data 属性上
+          opt.dataset.content = r.content || '';
+          select.appendChild(opt);
+        });
+      }
+    } catch (e) {}
+  },
+
+  closeModal() {
+    document.getElementById('interview-modal-overlay').classList.add('hidden');
+  },
+
+  // ── 开始面试 ──
+
+  start() {
+    const company = document.getElementById('modal-interview-company').value.trim();
+    const job = document.getElementById('modal-interview-job').value.trim();
+    const jd = document.getElementById('modal-interview-jd').value.trim();
+
+    if (!job && !jd) { alert('请至少填写岗位名称或岗位 JD'); return; }
+
+    // 关闭模态框
+    this.closeModal();
 
     document.getElementById('interview-setup').classList.add('hidden');
     document.getElementById('interview-report').classList.add('hidden');
@@ -71,12 +82,12 @@ const Interview = {
     document.getElementById('interview-phase-badge').textContent = '开场';
 
     this.sessionId = null;
-    await this.send(null, jobId, resumeId);
+    this.send(null);
   },
 
+  // ── 发送消息 ──
+
   async send(userText) {
-    const jobId = document.getElementById('interview-job-select').value;
-    const resumeId = document.getElementById('interview-resume-select').value;
     const input = document.getElementById('interview-input');
     const btn = document.getElementById('btn-send-answer');
 
@@ -88,7 +99,21 @@ const Interview = {
     }
 
     try {
-      const body = { job_id: parseInt(jobId), resume_id: parseInt(resumeId) };
+      const body = {};
+
+      // 从模态框读取 JD 和简历文字（直接文本模式）
+      const jdText = document.getElementById('modal-interview-jd').value.trim();
+      const resumeText = document.getElementById('modal-interview-resume').value.trim();
+      const jobTitle = document.getElementById('modal-interview-job').value.trim();
+      const companyName = document.getElementById('modal-interview-company').value.trim();
+
+      if (jdText) {
+        body.jd_text = jdText;
+        body.job_title = jobTitle;
+        body.company_name = companyName;
+        body.resume_text = resumeText;
+      }
+
       if (this.sessionId) body.session_id = this.sessionId;
       if (userText) body.user_message = userText;
 
@@ -187,8 +212,25 @@ const Interview = {
   },
 };
 
-// Event bindings
-document.getElementById('btn-start-interview').addEventListener('click', () => Interview.start());
+// ── Event bindings ──
+
+// 打开模态框
+document.getElementById('btn-open-interview-modal').addEventListener('click', () => Interview.openModal());
+// 关闭模态框
+document.getElementById('btn-close-interview-modal').addEventListener('click', () => Interview.closeModal());
+document.getElementById('btn-cancel-interview-modal').addEventListener('click', () => Interview.closeModal());
+// 点击遮罩关闭
+document.getElementById('interview-modal-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) Interview.closeModal();
+});
+// 确认开始
+document.getElementById('btn-confirm-interview').addEventListener('click', () => Interview.start());
+// Enter 在 JD textarea 中提交
+document.getElementById('modal-interview-jd').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.ctrlKey) Interview.start();
+});
+
+// 发送消息
 document.getElementById('btn-send-answer').addEventListener('click', () => {
   const text = document.getElementById('interview-input').value.trim();
   if (!text) return;
@@ -200,7 +242,16 @@ document.getElementById('interview-input').addEventListener('keydown', e => {
     document.getElementById('btn-send-answer').click();
   }
 });
+// 结束面试
 document.getElementById('btn-end-interview').addEventListener('click', () => {
   document.getElementById('interview-input').value = '结束';
   Interview.send('结束');
+});
+
+// 从简历管理导入：选中后自动填充到 textarea
+document.getElementById('modal-interview-resume-select').addEventListener('change', function () {
+  const opt = this.selectedOptions[0];
+  if (opt && opt.dataset.content) {
+    document.getElementById('modal-interview-resume').value = opt.dataset.content;
+  }
 });

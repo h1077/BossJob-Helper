@@ -11,6 +11,32 @@ from utils.auth import login_required
 
 jobs_bp = Blueprint('jobs', __name__, url_prefix='/api/jobs')
 
+# 扩展状态值
+VALID_STATUSES = (
+    'not_applied', 'applied', 'resume_screening', 'pending_exam',
+    'pending_interview', 'interviewing', 'interview_passed', 'interview_failed',
+    'terminated', 'offer_accepted', 'offer_rejected', 'interested', 'rejected',
+)
+
+STATUS_LABELS = {
+    'not_applied': '未投递', 'applied': '已投递', 'resume_screening': '简历初筛',
+    'pending_exam': '待笔试', 'pending_interview': '待面试', 'interviewing': '面试中',
+    'interview_passed': '面试通过', 'interview_failed': '面试未通过',
+    'terminated': '已终止', 'offer_accepted': 'Offer已接受', 'offer_rejected': 'Offer已拒绝',
+    'interested': '有意向', 'rejected': '已拒绝',
+}
+
+KANBAN_COLUMNS = [
+    ('not_applied', '📥 未投递'),
+    ('resume_screening', '🔍 简历初筛'),
+    ('pending_exam', '✏️ 待笔试'),
+    ('pending_interview', '📞 待面试'),
+    ('interviewing', '💬 面试中'),
+    ('interview_passed', '✅ 面试通过'),
+    ('interview_failed', '❌ 未通过'),
+    ('offer_accepted', '🎉 Offer'),
+]
+
 
 @jobs_bp.route('/collect', methods=['POST'])
 @login_required
@@ -120,6 +146,12 @@ def get_stats():
     interviewing = InterestedJob.query.filter_by(user_id=user_id, status='interviewing').count()
     rejected = InterestedJob.query.filter_by(user_id=user_id, status='rejected').count()
     interested = InterestedJob.query.filter_by(user_id=user_id, status='interested').count()
+    # 扩展统计
+    screening = InterestedJob.query.filter_by(user_id=user_id, status='resume_screening').count()
+    pending_exam = InterestedJob.query.filter_by(user_id=user_id, status='pending_exam').count()
+    pending_interview = InterestedJob.query.filter_by(user_id=user_id, status='pending_interview').count()
+    interview_passed = InterestedJob.query.filter_by(user_id=user_id, status='interview_passed').count()
+    offer_accepted = InterestedJob.query.filter_by(user_id=user_id, status='offer_accepted').count()
 
     return jsonify({
         'success': True,
@@ -129,6 +161,11 @@ def get_stats():
             'interviewing': interviewing,
             'rejected': rejected,
             'interested': interested,
+            'resume_screening': screening,
+            'pending_exam': pending_exam,
+            'pending_interview': pending_interview,
+            'interview_passed': interview_passed,
+            'offer_accepted': offer_accepted,
         }
     })
 
@@ -197,11 +234,112 @@ def update_job_status(rec_id):
 
     data = request.get_json(silent=True) or {}
     new_status = data.get('status')
-    if new_status not in ('applied', 'interviewing', 'rejected', 'interested'):
-        return jsonify({'success': False, 'error': '无效的状态值'}), 400
+    if new_status not in VALID_STATUSES:
+        return jsonify({'success': False, 'error': f'无效的状态值，允许: {", ".join(VALID_STATUSES)}'}), 400
+
     job.status = new_status
+    job.status_updated_at = datetime.utcnow()
+    if data.get('statusNotes') or data.get('status_notes'):
+        job.status_notes = data.get('statusNotes') or data.get('status_notes')
+    if data.get('deliveryUrl') or data.get('delivery_url'):
+        job.delivery_url = data.get('deliveryUrl') or data.get('delivery_url')
+
     db.session.commit()
-    return jsonify({'success': True, 'data': {'id': job.id, 'status': job.status}})
+    return jsonify({
+        'success': True,
+        'data': {
+            'id': job.id, 'status': job.status,
+            'statusUpdatedAt': job.status_updated_at.isoformat() if job.status_updated_at else None,
+            'label': STATUS_LABELS.get(job.status, job.status),
+        }
+    })
+
+
+# ── 看板 / 统计 / 时间线 ──
+
+@jobs_bp.route('/kanban', methods=['GET'])
+@login_required
+def kanban():
+    """按状态分组返回职位列表（看板视图）"""
+    user_id = request.current_user.id
+    jobs = InterestedJob.query.filter_by(user_id=user_id).order_by(InterestedJob.updated_at.desc()).all()
+
+    columns = {}
+    for status_key, label in KANBAN_COLUMNS:
+        columns[status_key] = {'label': label, 'jobs': []}
+
+    for j in jobs:
+        d = j.to_dict()
+        d['statusLabel'] = STATUS_LABELS.get(j.status, j.status)
+        if j.status in columns:
+            columns[j.status]['jobs'].append(d)
+        else:
+            # 未匹配的状态归入"未投递"
+            if 'not_applied' in columns:
+                columns['not_applied']['jobs'].append(d)
+
+    return jsonify({'success': True, 'data': columns})
+
+
+@jobs_bp.route('/stats-v2', methods=['GET'])
+@login_required
+def stats_v2():
+    """扩展状态维度的统计数据"""
+    user_id = request.current_user.id
+    total = InterestedJob.query.filter_by(user_id=user_id).count()
+
+    status_counts = {}
+    for s in VALID_STATUSES:
+        status_counts[s] = InterestedJob.query.filter_by(user_id=user_id, status=s).count()
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'total': total,
+            'statusCounts': status_counts,
+            'statusLabels': STATUS_LABELS,
+        }
+    })
+
+
+@jobs_bp.route('/<int:rec_id>/timeline', methods=['GET'])
+@login_required
+def job_timeline(rec_id):
+    """返回职位的状态变更时间线（从 analytics_events 读取 status_change 事件）"""
+    from models import AnalyticsEvent
+    user_id = request.current_user.id
+    job = InterestedJob.query.filter_by(id=rec_id, user_id=user_id).first()
+    if not job:
+        return jsonify({'success': False, 'error': '岗位不存在'}), 404
+
+    events = AnalyticsEvent.query.filter_by(
+        user_id=user_id, event_type='status_change', category='job',
+    ).filter(
+        AnalyticsEvent.metadata_.contains({'job_id': rec_id})
+    ).order_by(AnalyticsEvent.server_ts.desc()).all()
+
+    timeline = []
+    for ev in events:
+        meta = ev.metadata_ if isinstance(ev.metadata_, dict) else {}
+        timeline.append({
+            'fromStatus': meta.get('from_status', ''),
+            'toStatus': meta.get('to_status', ''),
+            'toStatusLabel': STATUS_LABELS.get(meta.get('to_status', ''), ''),
+            'notes': meta.get('notes', ''),
+            'timestamp': ev.server_ts.isoformat() if ev.server_ts else None,
+        })
+
+    # 补充当前状态作为第一条（如果没有事件记录）
+    if not timeline and job.status_updated_at:
+        timeline.append({
+            'fromStatus': '',
+            'toStatus': job.status,
+            'toStatusLabel': STATUS_LABELS.get(job.status, job.status),
+            'notes': job.status_notes or '',
+            'timestamp': job.status_updated_at.isoformat(),
+        })
+
+    return jsonify({'success': True, 'data': timeline})
 
 
 @jobs_bp.route('/<int:rec_id>', methods=['DELETE'])
@@ -216,6 +354,68 @@ def delete_job(rec_id):
     return jsonify({'success': True})
 
 
+# ── 简历策略端点 ──
+
+@jobs_bp.route('/<int:rec_id>/strategy', methods=['GET'])
+@login_required
+def get_job_strategy(rec_id):
+    from models import PositionStrategy
+    user_id = request.current_user.id
+    job = InterestedJob.query.filter_by(id=rec_id, user_id=user_id).first()
+    if not job:
+        return jsonify({'success': False, 'error': '岗不存在'}), 404
+    strategy = PositionStrategy.query.filter_by(job_id=rec_id).first()
+    if strategy:
+        return jsonify({'success': True, 'data': strategy.to_dict()})
+    return jsonify({'success': True, 'data': {
+        'id': None, 'jobId': rec_id, 'companyType': '私企',
+        'highlightedProjects': [], 'highlightedInternships': [],
+        'highlightedSkills': [], 'strategyNotes': '',
+    }})
+
+
+@jobs_bp.route('/<int:rec_id>/strategy', methods=['POST'])
+@login_required
+def save_job_strategy(rec_id):
+    from models import PositionStrategy
+    user_id = request.current_user.id
+    job = InterestedJob.query.filter_by(id=rec_id, user_id=user_id).first()
+    if not job:
+        return jsonify({'success': False, 'error': '岗位不存在'}), 404
+    data = request.get_json(silent=True) or {}
+    strategy = PositionStrategy.query.filter_by(job_id=rec_id).first()
+    if not strategy:
+        strategy = PositionStrategy(job_id=rec_id)
+        db.session.add(strategy)
+    strategy.company_type = data.get('companyType', '私企')
+    strategy.highlighted_projects = data.get('highlightedProjects', [])
+    strategy.highlighted_internships = data.get('highlightedInternships', [])
+    strategy.highlighted_skills = data.get('highlightedSkills', [])
+    strategy.strategy_notes = data.get('strategyNotes', '')
+    db.session.commit()
+    return jsonify({'success': True, 'data': strategy.to_dict()})
+
+
+@jobs_bp.route('/strategy-rules', methods=['GET'])
+@login_required
+def get_strategy_rules():
+    from models import StrategyRule
+    from utils.strategy_rules import DEFAULT_RULES
+    rules = StrategyRule.query.all()
+    if rules:
+        return jsonify({'success': True, 'data': [r.to_dict() for r in rules]})
+    data = []
+    for ctype, rule in DEFAULT_RULES.items():
+        data.append({
+            'companyType': ctype,
+            'showPoliticalStatus': rule['show_political_status'],
+            'studentWorkHandling': rule['student_work_handling'],
+            'tone': rule['tone'],
+            'skillOrder': rule.get('skill_order', []),
+        })
+    return jsonify({'success': True, 'data': data})
+
+
 @jobs_bp.route('/export', methods=['GET'])
 @login_required
 def export_jobs():
@@ -223,7 +423,7 @@ def export_jobs():
     fmt = request.args.get('format', 'csv')
     jobs = InterestedJob.query.filter_by(user_id=user_id).order_by(InterestedJob.collected_at.desc()).all()
 
-    status_map = {'applied': '已投递', 'interviewing': '面试中', 'rejected': '已拒绝', 'interested': '有意向'}
+    status_map = STATUS_LABELS
     headers = ['公司', '岗位', '薪资', '地点', '经验要求', '学历要求', '状态', '匹配度', '投递时间']
 
     if fmt == 'json':

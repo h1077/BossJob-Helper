@@ -207,8 +207,11 @@ def analyze_resume():
 
     prompt = _build_analysis_prompt(resume_text)
     try:
+        endpoint = config.api_url.rstrip('/')
+        if not endpoint.endswith('/chat/completions'):
+            endpoint += '/chat/completions'
         resp = requests.post(
-            config.api_url,
+            endpoint,
             headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={'model': config.model, 'messages': [
                 {'role': 'system', 'content': '你是一位资深 HR 专家，擅长简历筛选和人才评估。'},
@@ -243,7 +246,7 @@ def rewrite_resume():
     prompt = _build_rewrite_prompt(resume_text, analysis)
     try:
         resp = requests.post(
-            config.api_url,
+            _api_endpoint(config),
             headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={'model': config.model, 'messages': [
                 {'role': 'system', 'content': '你是一位顶尖简历优化专家。'},
@@ -411,7 +414,7 @@ def generate_greeting():
 
     try:
         resp = requests.post(
-            config.api_url,
+            _api_endpoint(config),
             headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={
                 'model': config.model,
@@ -455,7 +458,12 @@ INTERVIEW_PHASES = ['opening', 'technical', 'experience', 'behavioral', 'reverse
 @ai_bp.route('/interview', methods=['POST'])
 @login_required
 def interview():
-    """面试模拟 — 根据 JD + 简历，AI 扮演 HR 分阶段提问"""
+    """面试模拟 — 根据 JD + 简历，AI 扮演 HR 分阶段提问
+
+    支持两种模式（互斥）：
+      新模式（推荐）：直接传入 jd_text / job_title / company_name / resume_text
+      旧模式（兼容）：传入 job_id / resume_id，从数据库读取
+    """
     data = request.get_json()
     if not data:
         return jsonify({'success': False, 'error': '请求数据为空'}), 400
@@ -464,32 +472,40 @@ def interview():
     if not config:
         return jsonify({'success': False, 'error': 'AI 服务未配置'}), 500
 
-    job_id = data.get('job_id')
-    resume_id = data.get('resume_id')
     user_message = data.get('user_message') or ''
     session_id = data.get('session_id')
 
-    # 获取 JD 和简历
-    jd_text = ''
-    resume_text = ''
-    company_name = ''
+    # ── 获取 JD 和简历：新模式优先（直接文本） ──
+    jd_text = (data.get('jd_text') or '').strip()
+    resume_text = (data.get('resume_text') or '').strip()
+    company_name = (data.get('company_name') or '').strip()
+    job_title = (data.get('job_title') or '').strip()
 
-    if job_id:
-        job = InterestedJob.query.get(job_id)
-        if job:
-            jd_text = (job.jd or '') + '\n' + (job.job_responsibilities or '') + '\n' + (job.job_requirements or '')
-            company_name = job.company_name
-            if not jd_text.strip():
-                jd_text = f'{job.job_name} - {job.company_name} - {job.salary or ""} - {job.location or ""}'
-    if resume_id:
-        resume = Resume.query.get(resume_id)
-        if resume:
-            resume_text = resume.content
+    # 旧模式兼容：从数据库读取
+    if not jd_text:
+        job_id = data.get('job_id')
+        resume_id = data.get('resume_id')
+        if job_id:
+            job = InterestedJob.query.get(job_id)
+            if job:
+                jd_text = (job.jd or '') + '\n' + (job.job_responsibilities or '') + '\n' + (job.job_requirements or '')
+                company_name = company_name or job.company_name
+                if not jd_text.strip():
+                    jd_text = f'{job.job_name} - {job.company_name} - {job.salary or ""} - {job.location or ""}'
+        if resume_id and not resume_text:
+            resume = Resume.query.get(resume_id)
+            if resume:
+                resume_text = resume.content
 
-    if not jd_text.strip():
-        return jsonify({'success': False, 'error': '岗位 JD 为空，请先在职位追踪中选择一个有 JD 的岗位'}), 400
-    if not resume_text.strip():
-        return jsonify({'success': False, 'error': '简历内容为空，请先在简历管理中创建一份简历'}), 400
+    # 至少需要 JD 文字
+    if not jd_text:
+        return jsonify({'success': False, 'error': '请填写岗位 JD 或岗位名称'}), 400
+
+    # 构造函数名称（用于 prompt 上下文）
+    if job_title:
+        display_job = f'{company_name} - {job_title}' if company_name else job_title
+    else:
+        display_job = company_name or '目标岗位'
 
     # 加载或创建会话
     session = None
@@ -504,8 +520,8 @@ def interview():
     if not session:
         session = InterviewSession(
             user_id=request.current_user.id,
-            job_id=job_id,
-            resume_id=resume_id,
+            job_id=data.get('job_id'),
+            resume_id=data.get('resume_id'),
             status='in_progress',
             messages=[],
         )
@@ -521,11 +537,11 @@ def interview():
         current_phase = _detect_interview_phase(messages)
 
     # 构建 prompt
-    system_prompt = _build_interview_prompt(jd_text, resume_text, company_name, current_phase, messages)
+    system_prompt = _build_interview_prompt(jd_text, resume_text, display_job, current_phase, messages)
 
     try:
         resp = requests.post(
-            config.api_url,
+            _api_endpoint(config),
             headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={
                 'model': config.model,
@@ -619,14 +635,18 @@ def _build_interview_prompt(jd_text, resume_text, company_name, phase, messages)
     guide = phase_guides.get(phase, phase_guides['opening'])
     history_count = len([m for m in messages if m['role'] == 'user'])
 
+    resume_section = f"""# 候选人简历
+{resume_text[:2500]}
+
+""" if resume_text.strip() else ''
+
     return f"""# 角色
-你是 {company_name or '某公司'} 的一位资深HR，正在BOSS直聘上对一位求职者进行线上面试。
+你是 {company_name or '某公司'} 的一位资深HR，正在进行一场线上技术面试。
 
 # 岗位信息
 {jd_text[:2000]}
 
-# 候选人简历
-{resume_text[:2500]}
+{resume_section}
 
 # 面试阶段
 当前阶段：{phase}（{guide}）
@@ -673,7 +693,7 @@ def _generate_interview_report(config, jd_text, resume_text, messages):
 
     try:
         resp = requests.post(
-            config.api_url,
+            _api_endpoint(config),
             headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
             json={
                 'model': config.model,
@@ -694,25 +714,57 @@ def _generate_interview_report(config, jd_text, resume_text, messages):
     return None
 
 
+def _api_endpoint(config):
+    """统一构造 API 端点 URL，确保以 /chat/completions 结尾"""
+    url = (config.api_url or '').rstrip('/')
+    if not url.endswith('/chat/completions'):
+        url += '/chat/completions'
+    return url
+
+
 def _parse_ai_json(ai_response):
+    """从 AI 返回文本中提取 JSON，支持多种格式和嵌套深度"""
     json_str = ''
+
+    # 1) 优先提取 ```json ... ``` 代码块
     code_block = re.search(r'```json\s*([\s\S]*?)```', ai_response)
     if code_block:
         json_str = code_block.group(1).strip()
     else:
+        # 2) 提取 ``` ... ``` 通用代码块
         generic = re.search(r'```\s*([\s\S]*?)```', ai_response)
         if generic:
             json_str = generic.group(1).strip()
         else:
-            brace = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', ai_response)
-            if brace:
-                json_str = brace.group(0)
+            # 3) 从文本中提取最外层 JSON 对象（支持任意嵌套深度）
+            start = ai_response.find('{')
+            if start >= 0:
+                depth = 0
+                for i in range(start, len(ai_response)):
+                    ch = ai_response[i]
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            json_str = ai_response[start:i + 1]
+                            break
 
     if not json_str:
         return None
 
     try:
         result = json.loads(json_str)
+    except json.JSONDecodeError:
+        # 4) 尝试修复常见的 JSON 问题：尾部逗号、单引号
+        try:
+            fixed = re.sub(r',\s*}', '}', json_str)
+            fixed = re.sub(r',\s*]', ']', fixed)
+            result = json.loads(fixed)
+        except json.JSONDecodeError:
+            return None
+
+    if isinstance(result, dict):
         if result.get('dimensions'):
             for key in result['dimensions']:
                 d = result['dimensions'][key]
@@ -725,5 +777,234 @@ def _parse_ai_json(ai_response):
             )
             result['overall_score'] = calculated
         return result
-    except json.JSONDecodeError:
-        return None
+    return None
+
+
+@ai_bp.route('/analyze-jd', methods=['POST'])
+@login_required
+def analyze_jd():
+    """JD 分析 + 建议提问（借鉴 lakejobai）"""
+    data = request.get_json(silent=True) or {}
+    job_title = data.get('job_title', '')
+    company = data.get('company', '')
+    description = data.get('description', '')
+    resume_text = data.get('resume_text', '')
+    resume_analysis = data.get('resume_analysis', '')
+
+    if not description or len(description) < 20:
+        return jsonify({'success': False, 'error': 'JD内容不足'}), 400
+
+    # 检查缓存（24h）
+    try:
+        job = InterestedJob.query.filter_by(company=company, position=job_title).first()
+        if job and job.jd_analysis and job.jd_analysis_at:
+            age = (datetime.utcnow() - job.jd_analysis_at).total_seconds()
+            if age < 86400:
+                return jsonify({'success': True, 'data': json.loads(job.jd_analysis), '_cached': True})
+    except Exception:
+        pass
+
+    # 构建 prompt
+    has_resume = bool(resume_text and len(resume_text) > 10)
+    if has_resume:
+        sys = '你是求职辅导专家。对比求职者简历和岗位JD，输出严格JSON。'
+        user = f"""## 求职者简历
+{resume_text[:2000]}
+{f"## 简历AI分析\n{resume_analysis[:600]}" if resume_analysis else ""}
+
+## 岗位信息
+- 公司: {company}
+- 职位: {job_title}
+- JD: {description[:2000]}
+
+## 输出格式（严格JSON，不要markdown代码块）
+{{
+  "match_score": 85,
+  "decision": "建议投递",
+  "key_skills": ["Python", "LangChain"],
+  "gap": "缺少K8s经验",
+  "advice": "建议强调Agent开发经验",
+  "summary": "整体匹配度较高",
+  "reasons": ["技术栈匹配", "经验对口"],
+  "risks": ["JD要求年限较高"],
+  "suggested_questions": ["团队技术栈是什么？", "目前项目阶段？"]
+}}"""
+    else:
+        sys = '你是求职辅导专家。分析岗位JD，提取关键信息，输出严格JSON。'
+        user = f"""## 岗位信息
+- 公司: {company}
+- 职位: {job_title}
+- JD: {description[:2000]}
+
+## 输出格式（严格JSON，不要markdown代码块）
+{{
+  "match_score": 70,
+  "decision": "可以尝试",
+  "key_skills": ["Python"],
+  "gap": "",
+  "advice": "",
+  "summary": "该岗位核心要求是...",
+  "reasons": ["理由1"],
+  "risks": ["风险1"],
+  "suggested_questions": ["追问1"]
+}}
+注意: match_score基于JD难度和市场需求预估，不必对比简历。"""
+
+    try:
+        from utils.ai_client import call_ai
+        raw = call_ai(sys, user, temperature=0.3, max_tokens=800)
+        # 解析 JSON
+        raw = raw.strip()
+        if raw.startswith('```'):
+            raw = re.sub(r'^```\w*\n?', '', raw)
+            raw = re.sub(r'\n?```$', '', raw)
+        result = json.loads(raw)
+        result.setdefault('match_score', 50)
+        result.setdefault('decision', '可以尝试')
+
+        # 缓存到数据库
+        try:
+            if job:
+                job.jd_analysis = json.dumps(result, ensure_ascii=False)
+                job.jd_analysis_at = datetime.utcnow()
+                db.session.commit()
+        except Exception:
+            pass
+
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'data': {
+            'match_score': 0, 'decision': '分析失败',
+            'key_skills': [], 'summary': f'请检查AI配置: {str(e)}'
+        }}), 200
+
+
+@ai_bp.route('/parse-structured', methods=['POST'])
+@login_required
+def parse_structured():
+    """AI 解析简历文本 → 结构化数据（自动填入结构化编辑器）"""
+    data = request.get_json(silent=True) or {}
+    resume_text = (data.get('resume_text') or '').strip()
+    if not resume_text or len(resume_text) < 20:
+        return jsonify({'success': False, 'error': '简历内容过短，至少需要20个字符'}), 400
+
+    config = get_default_ai_config()
+    if not config:
+        return jsonify({'success': False, 'error': 'AI 服务未配置'}), 500
+
+    prompt = _build_parse_structured_prompt(resume_text)
+    try:
+        resp = requests.post(
+            _api_endpoint(config),
+            headers={'Authorization': f'Bearer {_api_key(config)}', 'Content-Type': 'application/json'},
+            json={'model': config.model, 'messages': [
+                {'role': 'system', 'content': '你是一位简历结构化解析专家。你只输出纯 JSON，不输出任何解释性文字。严格按照给定的 JSON Schema 提取信息，缺失字段填空字符串或空数组，绝不编造任何信息。'},
+                {'role': 'user', 'content': prompt},
+            ], 'temperature': 0.2, 'max_tokens': 3000},
+            timeout=60,
+        )
+        if not resp.ok:
+            return jsonify({'success': False, 'error': f'AI 服务调用失败: HTTP {resp.status_code}'}), 500
+
+        ai_response = resp.json()['choices'][0]['message']['content']
+        parsed = _parse_ai_json(ai_response)
+
+        # 规范化：确保所有顶层字段存在
+        defaults = {
+            'name': '', 'hometown': '', 'email': '', 'phone': '',
+            'political_status': '', 'homepage': '', 'address': '', 'portfolio': '',
+            'education': [], 'internships': [], 'projects': [],
+            'skills': {'english': '', 'programming': '', 'ai': '', 'tools': '', 'hardware': '', 'other': ''},
+            'awards': [], 'student_work': [],
+        }
+        for key, default in defaults.items():
+            if key not in parsed or parsed[key] is None:
+                parsed[key] = default
+        # 确保 skills 的每个子字段都存在
+        if isinstance(parsed.get('skills'), dict):
+            for sk in ['english', 'programming', 'ai', 'tools', 'hardware', 'other']:
+                if sk not in parsed['skills'] or parsed['skills'][sk] is None:
+                    parsed['skills'][sk] = ''
+
+        return jsonify({'success': True, 'data': parsed})
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'AI 解析失败: {str(e)}'}), 500
+
+
+def _build_parse_structured_prompt(resume_text):
+    """构建「简历文本 → 结构化 JSON」的 prompt"""
+    SCHEMA = '''{
+  "name": "姓名",
+  "hometown": "籍贯（如：湖南长沙）",
+  "email": "邮箱地址",
+  "phone": "电话号码",
+  "political_status": "政治面貌（如：中共党员/共青团员/群众），简历未提及则留空",
+  "homepage": "个人主页/博客 URL",
+  "address": "通讯地址",
+  "portfolio": "作品集/GitHub 链接",
+  "education": [
+    {
+      "school": "学校全称",
+      "major": "专业全称",
+      "degree": "学历（如：本科/硕士/博士）",
+      "period": "就读时间（如：2020.9 - 2024.6）",
+      "gpa": "GPA（如：3.8/4.0），未提及则留空",
+      "highlights": "亮点（如：奖学金、研究方向、荣誉等），未提及则留空"
+    }
+  ],
+  "internships": [
+    {
+      "company": "公司/机构全称",
+      "role": "实习岗位名称",
+      "period": "实习时间（如：2023.6 - 2023.9）",
+      "summary": "工作概述（一句话概括主要职责和成果）",
+      "star_points": [
+        {"action": "具体行动/方法/技术", "result": "量化成果/产出"}
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "项目名称",
+      "role": "承担角色（如：项目负责人/核心开发）",
+      "period": "项目时间",
+      "summary": "项目概述（背景与目标，一句话）",
+      "tags": ["技术标签1", "技术标签2"],
+      "star_points": [
+        {"situation": "背景与痛点", "action": "具体行动/方案", "result": "量化成果（如：性能提升X%、准确率X%）", "keywords": "关键技术词（逗号分隔）"}
+      ]
+    }
+  ],
+  "skills": {
+    "english": "英语水平（如：CET6 580分，可阅读英文文献）",
+    "programming": "编程语言（如：Python、Java、C++）",
+    "ai": "AI/数据分析工具（如：PyTorch、Pandas、Scikit-learn）",
+    "tools": "开发工具（如：Git、Docker、VS Code）",
+    "hardware": "硬件相关技能（如：STM32、PCB设计），无则留空",
+    "other": "其他技能（如：项目管理、技术写作）"
+  },
+  "awards": [
+    {"category": "奖项类别（如：竞赛类/荣誉类/奖学金）", "name": "奖项全称"}
+  ],
+  "student_work": [
+    {"org": "学生组织/社团名称", "role": "担任职务", "period": "任职时间", "desc": "工作描述"}
+  ]
+}'''
+    return f"""## 任务
+从以下简历文本中提取所有信息，严格按照 JSON Schema 填充。
+
+## JSON Schema
+{SCHEMA}
+
+## 重要规则
+1. 只提取简历中明确提到的信息，缺失字段填空字符串 "" 或空数组 []
+2. 教育经历按时间倒序（最新的在前）
+3. 实习和项目经历中，每个 star_point 只包含一个独立的行动和成果
+4. 技能字段尽量提取详细（如 "Python、Java" 而非 "编程语言"）
+5. star_points 中的 action 和 result 要具体，保留原文中的技术名词和量化数据
+6. 只输出 JSON，不要任何 markdown 代码块标记或解释文字
+
+## 简历文本
+{resume_text[:5000]}
+
+请输出 JSON："""

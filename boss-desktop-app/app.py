@@ -12,6 +12,60 @@ from models import db
 from config import PORT, HOST
 
 
+def _run_migrations(inspector):
+    """幂等迁移：检测缺失列/表并自动补充，重复执行安全"""
+    from sqlalchemy import text as _text
+
+    def _has_column(table, col):
+        return col in {c['name'] for c in inspector.get_columns(table)}
+
+    def _has_table(name):
+        return inspector.has_table(name)
+
+    # Resume 表：structured_data 列
+    if not _has_column('resumes', 'structured_data'):
+        db.session.execute(_text("ALTER TABLE resumes ADD COLUMN structured_data JSON"))
+        print('[migration] + resumes.structured_data')
+
+    # InterestedJob 表：status_updated_at / status_notes / delivery_url
+    if not _has_column('interested_jobs', 'status_updated_at'):
+        db.session.execute(_text("ALTER TABLE interested_jobs ADD COLUMN status_updated_at DATETIME"))
+        print('[migration] + interested_jobs.status_updated_at')
+    if not _has_column('interested_jobs', 'status_notes'):
+        db.session.execute(_text("ALTER TABLE interested_jobs ADD COLUMN status_notes TEXT"))
+        print('[migration] + interested_jobs.status_notes')
+    if not _has_column('interested_jobs', 'delivery_url'):
+        db.session.execute(_text("ALTER TABLE interested_jobs ADD COLUMN delivery_url VARCHAR(500)"))
+        print('[migration] + interested_jobs.delivery_url')
+
+    # 新表：position_strategies / strategy_rules（由 create_all 处理，这里兜底）
+    if not _has_table('position_strategies'):
+        db.create_all()
+        print('[migration] + tables created via create_all')
+
+    db.session.commit()
+
+    # ── 种子数据：默认策略规则 ──
+    _seed_default_strategy_rules()
+
+
+def _seed_default_strategy_rules():
+    """种子数据：插入默认策略规则（幂等，已存在则跳过）"""
+    from models import StrategyRule
+    from utils.strategy_rules import DEFAULT_RULES
+    for ctype, rule in DEFAULT_RULES.items():
+        existing = StrategyRule.query.filter_by(company_type=ctype).first()
+        if not existing:
+            db.session.add(StrategyRule(
+                company_type=ctype,
+                show_political_status=rule['show_political_status'],
+                student_work_handling=rule['student_work_handling'],
+                tone=rule['tone'],
+                skill_order=rule.get('skill_order', []),
+            ))
+    db.session.commit()
+
+
 def _load_or_create_token(base_dir):
     token_path = os.path.join(base_dir, 'data', '.local_token')
     if os.path.exists(token_path):
@@ -38,12 +92,8 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    # 只允许本地来源和 BOSS 直聘页面
-    CORS(app, resources={r"/api/*": {
-        "origins": ["http://localhost:5001", "http://127.0.0.1:5001",
-                    "http://localhost:5002", "http://127.0.0.1:5002",
-                    "https://www.zhipin.com"]
-    }})
+    # 本地桌面工具，放开所有来源（含 Chrome 扩展 sidepanel）
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
 
     # 本地 token 存储到 app config
     app.config['LOCAL_TOKEN'] = _load_or_create_token(base_dir)
@@ -52,6 +102,10 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        # ── 手动迁移：为已有数据库补充新列（幂等，重复执行安全） ──
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        _run_migrations(inspector)
 
     from routes.ai import ai_bp
     from routes.jobs import jobs_bp

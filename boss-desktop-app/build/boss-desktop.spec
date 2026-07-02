@@ -7,7 +7,7 @@ a = Analysis(
     datas=[
         ('../static', 'static'),
     ],
-    hiddenimports=['flask_sqlalchemy', 'sqlalchemy.sql.default_comparator', 'jinja2.ext'],
+    hiddenimports=['flask_sqlalchemy', 'sqlalchemy.sql.default_comparator', 'jinja2.ext', 'utils.ai_client', 'utils.crypto', 'utils.rate_limit', 'utils.auth', 'utils.strategy_rules', 'routes.ai', 'routes.agent', 'routes.jobs', 'routes.resumes', 'routes.analytics'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

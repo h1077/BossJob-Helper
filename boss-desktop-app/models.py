@@ -70,6 +70,14 @@ class Resume(db.Model):
     improvements = db.Column(db.JSON, nullable=True)
     analysis_result = db.Column(db.JSON, nullable=True)
     ats_data = db.Column(db.JSON, nullable=True)
+    structured_data = db.Column(db.JSON, nullable=True)
+    # structured_data 结构:
+    # { name, hometown, email, phone, political_status, homepage, address, portfolio,
+    #   education[{school,major,degree,period,gpa,highlights}],
+    #   internships[{company,role,period,summary,star_points[]}],
+    #   projects[{name,role,period,summary,tags[],star_points[]}],
+    #   skills{english,programming,ai,tools,hardware,other},
+    #   awards[{category,name}], student_work[{org,role,period,desc}], custom_sections[] }
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -83,6 +91,7 @@ class Resume(db.Model):
             'improvements': self.improvements if isinstance(self.improvements, list) else [],
             'analysisResult': self.analysis_result if isinstance(self.analysis_result, dict) else None,
             'atsData': self.ats_data if isinstance(self.ats_data, dict) else None,
+            'structuredData': self.structured_data if isinstance(self.structured_data, dict) else None,
             'createdAt': self.created_at.isoformat() if self.created_at else None,
             'updatedAt': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -108,6 +117,9 @@ class InterestedJob(db.Model):
     job_responsibilities = db.Column(db.Text)
     job_requirements = db.Column(db.Text)
     status = db.Column(db.String(20), default='applied')
+    status_updated_at = db.Column(db.DateTime, nullable=True)
+    status_notes = db.Column(db.Text, nullable=True)
+    delivery_url = db.Column(db.String(500), nullable=True)
     source_url = db.Column(db.String(500))
     match_score = db.Column(db.Integer, default=0)
     match_level = db.Column(db.String(50))
@@ -139,6 +151,9 @@ class InterestedJob(db.Model):
             'jobResponsibilities': self.job_responsibilities,
             'jobRequirements': self.job_requirements,
             'status': self.status,
+            'statusUpdatedAt': self.status_updated_at.isoformat() if self.status_updated_at else None,
+            'statusNotes': self.status_notes,
+            'deliveryUrl': self.delivery_url,
             'sourceUrl': self.source_url,
             'hrName': self.hr_name,
             'hrTitle': self.hr_title,
@@ -152,6 +167,61 @@ class InterestedJob(db.Model):
             },
             'collectedAt': self.collected_at,
             'createdAt': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class PositionStrategy(db.Model):
+    """岗位-简历匹配策略：每个职位可配置独立的定制规则"""
+    __tablename__ = 'position_strategies'
+
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('interested_jobs.id'), nullable=False, unique=True, index=True)
+    company_type = db.Column(db.String(20), default='私企')
+    # 私企 / 国企 / 外企 / 事业单位 / 科研院所
+    highlighted_projects = db.Column(db.JSON, nullable=True)
+    # [[proj_index, priority], ...] — 项目优先级排序
+    highlighted_internships = db.Column(db.JSON, nullable=True)
+    highlighted_skills = db.Column(db.JSON, nullable=True)
+    # [[skill_key, priority], ...] — 技能优先级排序
+    strategy_notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'jobId': self.job_id,
+            'companyType': self.company_type,
+            'highlightedProjects': self.highlighted_projects if isinstance(self.highlighted_projects, list) else [],
+            'highlightedInternships': self.highlighted_internships if isinstance(self.highlighted_internships, list) else [],
+            'highlightedSkills': self.highlighted_skills if isinstance(self.highlighted_skills, list) else [],
+            'strategyNotes': self.strategy_notes,
+            'updatedAt': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class StrategyRule(db.Model):
+    """全局默认策略规则：按公司类型定义"""
+    __tablename__ = 'strategy_rules'
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_type = db.Column(db.String(20), unique=True, nullable=False)
+    show_political_status = db.Column(db.Boolean, default=False)
+    student_work_handling = db.Column(db.String(20), default='keep')
+    # keep / remove / compact
+    tone = db.Column(db.String(20), default='主导')
+    # 主导 / 参与
+    skill_order = db.Column(db.JSON, nullable=True)
+    # [['programming', 1], ['ai', 2], ...]
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'companyType': self.company_type,
+            'showPoliticalStatus': self.show_political_status,
+            'studentWorkHandling': self.student_work_handling,
+            'tone': self.tone,
+            'skillOrder': self.skill_order if isinstance(self.skill_order, list) else [],
         }
 
 
