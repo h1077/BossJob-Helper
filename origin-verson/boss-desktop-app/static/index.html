@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boss海投小助手</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" style="width:28px;height:28px;fill:#4285f4;"><path d="M896 256H640V160c0-35.3-28.7-64-64-64H448c-35.3 0-64 28.7-64 64v96H128c-35.3 0-64 28.7-64 64v512c0 35.3 28.7 64 64 64h768c35.3 0 64-28.7 64-64V320c0-35.3-28.7-64-64-64zM448 160h128v96H448V160zm448 672H128V320h768v512z"/><path d="M512 480c-70.7 0-128 57.3-128 128s57.3 128 128 128 128-57.3 128-128-57.3-128-128-128zm0 192c-35.3 0-64-28.7-64-64s28.7-64 64-64 64 28.7 64 64-28.7 64-64 64z"/></svg>
+    <span>Boss海投<span style="color:#4285f4;">小助手</span></span>
+  </div>
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <a class="nav-item active" data-page="dashboard">
+      <span class="nav-icon">📊</span> 仪表盘
+    </a>
+    <a class="nav-item" data-page="jobs">
+      <span class="nav-icon">📋</span> 职位追踪
+    </a>
+    <a class="nav-item" data-page="resumes">
+      <span class="nav-icon">📝</span> 简历管理
+    </a>
+    <a class="nav-item" data-page="settings">
+      <span class="nav-icon">⚙️</span> AI 设置
+    </a>
+    <a class="nav-item" data-page="interview">
+      <span class="nav-icon">🎯</span> 模拟面试
+    </a>
+    <a class="nav-item" data-page="export">
+      <span class="nav-icon">📥</span> 导出数据
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">运行中</span>
+  </div>
+</aside>
+
+<main class="main-content" id="main-content">
+  <!-- 仪表盘 -->
+  <section class="page active" id="page-dashboard">
+    <h2 class="page-title">📊 求职仪表盘</h2>
+    <div class="stats-cards" id="stats-cards">
+      <div class="stat-card"><div class="stat-icon">👋</div><div class="stat-value" id="stat-total">0</div><div class="stat-label">总投递</div></div>
+      <div class="stat-card"><div class="stat-icon">🔍</div><div class="stat-value" id="stat-screening">0</div><div class="stat-label">简历初筛</div></div>
+      <div class="stat-card"><div class="stat-icon">💬</div><div class="stat-value" id="stat-interviewing">0</div><div class="stat-label">面试中</div></div>
+      <div class="stat-card"><div class="stat-icon">📞</div><div class="stat-value" id="stat-pending-interview">0</div><div class="stat-label">待面试</div></div>
+      <div class="stat-card"><div class="stat-icon">✏️</div><div class="stat-value" id="stat-pending-exam">0</div><div class="stat-label">待笔试</div></div>
+      <div class="stat-card"><div class="stat-icon">🎉</div><div class="stat-value" id="stat-offer">0</div><div class="stat-label">Offer</div></div>
+    </div>
+    <div class="card"><h3>📋 投递看板</h3><div class="kanban-board" id="kanban-board"><div class="loading">加载中</div></div></div>
+    <div class="card chart-card"><h3>📈 近14天投递趋势</h3><div class="chart-container" id="daily-chart"></div></div>
+    <div class="card"><h3>🕐 最近投递</h3><div class="table-wrap"><table class="data-table" id="recent-table"><thead><tr><th>公司</th><th>岗位</th><th>薪资</th><th>地点</th><th>状态</th><th>时间</th></tr></thead><tbody></tbody></table></div></div>
+  </section>
+
+  <!-- 职位追踪 -->
+  <section class="page" id="page-jobs">
+    <h2 class="page-title">📋 职位追踪</h2>
+    <div class="filter-bar">
+      <input type="text" id="job-search" placeholder="搜索公司或岗位...">
+      <select id="job-status-filter"><option value="">全部状态</option><option value="not_applied">未投递</option><option value="applied">已投递</option><option value="resume_screening">简历初筛</option><option value="pending_exam">待笔试</option><option value="pending_interview">待面试</option><option value="interviewing">面试中</option><option value="interview_passed">面试通过</option><option value="interview_failed">面试未通过</option><option value="offer_accepted">Offer已接受</option><option value="offer_rejected">Offer已拒绝</option><option value="interested">有意向</option><option value="rejected">已拒绝</option><option value="terminated">已终止</option></select>
+      <button class="btn btn-sm" id="job-search-btn">搜索</button>
+      <button class="btn btn-primary btn-sm" id="btn-batch-customize" style="margin-left:auto;">📋 批量定制简历</button>
+    </div>
+    <div class="card"><div class="table-wrap"><table class="data-table" id="jobs-table"><thead><tr><th>公司</th><th>岗位</th><th>薪资</th><th>地点</th><th>状态</th><th>匹配度</th><th>投递时间</th><th>操作</th></tr></thead><tbody></tbody></table></div></div>
+    <div class="pagination" id="jobs-pagination"></div>
+  </section>
+
+  <!-- 简历管理 -->
+  <section class="page" id="page-resumes">
+    <h2 class="page-title">📝 简历管理</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+      <button class="btn btn-primary" id="btn-new-resume">+ 新建简历</button>
+      <button class="btn btn-primary" id="btn-ai-generate">🤖 AI 生成简历</button>
+      <button class="btn" id="btn-ai-score">📊 深度评分</button>
+      <button class="btn" id="btn-ai-match">🎯 JD 匹配</button>
+      <button class="btn" id="btn-ai-export-pdf">🖨️ 导出 PDF</button>
+      <button class="btn" id="btn-ai-export-latex" title="专业排版 (需要安装 LaTeX)">📐 LaTeX PDF</button>
+    </div>
+    <!-- 导出样式设置 -->
+    <div class="template-config-bar" id="template-config">
+      <span class="tpl-label">🎨 导出样式：</span>
+      <label>主题色 <input type="color" id="tpl-theme" value="#2563eb" title="主题色"></label>
+      <label>字号 <select id="tpl-body-size">
+        <option value="11">小 11px</option>
+        <option value="12">较小 12px</option>
+        <option value="13" selected>标准 13px</option>
+        <option value="14">较大 14px</option>
+        <option value="15">大 15px</option>
+      </select></label>
+      <label>页边距 <select id="tpl-margin">
+        <option value="12">窄 12mm</option>
+        <option value="14">较窄 14mm</option>
+        <option value="16" selected>标准 16mm</option>
+        <option value="18">较宽 18mm</option>
+        <option value="20">宽 20mm</option>
+      </select></label>
+      <label>行高 <select id="tpl-line-height">
+        <option value="1.4">紧凑 1.4</option>
+        <option value="1.55">较紧 1.55</option>
+        <option value="1.7" selected>标准 1.7</option>
+        <option value="1.85">较松 1.85</option>
+        <option value="2.0">宽松 2.0</option>
+      </select></label>
+      <button class="btn btn-sm" id="btn-reset-tpl" title="恢复默认">↺</button>
+    </div>
+    <div id="resume-list" class="resume-grid"></div>
+    <!-- ══ 编辑器顶部栏（对标 VitaFlow Header）══ -->
+    <div id="resume-top-bar" style="display:none;">
+      <button class="btn btn-ghost" onclick="backToResumeList()" style="font-size:14px;padding:6px 12px;">← 返回</button>
+      <input class="topbar-title" id="topbar-resume-title" placeholder="无标题简历" oninput="document.getElementById('resume-title-input').value=this.value">
+      <span class="topbar-status" id="topbar-save-status"></span>
+      <div style="flex:1;"></div>
+      <button class="btn btn-sm" onclick="document.getElementById('btn-ai-generate').click()" title="AI 生成">🤖</button>
+      <button class="btn btn-sm" onclick="document.getElementById('btn-ai-score').click()" title="评分">📊</button>
+      <button class="btn btn-sm" onclick="document.getElementById('btn-ai-export-pdf').click()" title="导出 PDF">📄</button>
+    </div>
+
+    <!-- ══ 编辑器主体 ══ -->
+    <div id="resume-editor" class="resume-editor hidden">
+      <div class="editor-tabs" id="editor-tabs">
+        <button class="editor-tab active" data-mode="richtext">📝 富文本</button>
+        <button class="editor-tab" data-mode="structured">📋 结构化</button>
+        <button class="editor-tab" data-mode="ai">🤖 AI 助手</button>
+      </div>
+
+      <!-- 富文本模式 -->
+      <div class="editor-panel" id="panel-richtext">
+        <div class="editor-toolbar" id="editor-toolbar"></div>
+        <div class="editor-body" contenteditable="true" id="editor-content" placeholder="在此粘贴或编辑简历内容..."></div>
+      </div>
+
+      <!-- AI 助手面板（左右分栏：卡片+聊天 | 预览） -->
+      <div class="editor-panel hidden" id="panel-ai">
+        <div class="editor-split">
+          <div class="editor-split-left" style="overflow-y:auto;">
+            <h3 style="font-size:18px;font-weight:600;margin-bottom:16px;">简历打磨，现在开始</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">
+              <button class="ai-quick-card" data-action="score" style="padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--card-bg);cursor:pointer;text-align:left;">
+                <div style="font-size:20px;margin-bottom:4px;">🔍</div>
+                <div style="font-weight:600;font-size:13px;">深度体检</div>
+                <div style="font-size:11px;color:var(--text-secondary);">发现缺失加分项</div>
+              </button>
+              <button class="ai-quick-card" data-action="polish" style="padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--card-bg);cursor:pointer;text-align:left;">
+                <div style="font-size:20px;margin-bottom:4px;">✨</div>
+                <div style="font-weight:600;font-size:13px;">提炼亮点</div>
+                <div style="font-size:11px;color:var(--text-secondary);">让项目脱颖而出</div>
+              </button>
+              <button class="ai-quick-card" data-action="summary" style="padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--card-bg);cursor:pointer;text-align:left;">
+                <div style="font-size:20px;margin-bottom:4px;">📝</div>
+                <div style="font-weight:600;font-size:13px;">重构简介</div>
+                <div style="font-size:11px;color:var(--text-secondary);">更贴合岗位需求</div>
+              </button>
+              <button class="ai-quick-card" data-action="match" style="padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--card-bg);cursor:pointer;text-align:left;">
+                <div style="font-size:20px;margin-bottom:4px;">🎯</div>
+                <div style="font-weight:600;font-size:13px;">JD 匹配</div>
+                <div style="font-size:11px;color:var(--text-secondary);">对比岗位要求</div>
+              </button>
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:16px;">
+              <textarea id="ai-chat-input" rows="2" placeholder="输入你想调整的内容，如：帮我润色项目经历..." style="flex:1;border:1px solid var(--border);border-radius:10px;padding:10px;font-size:13px;resize:none;"></textarea>
+              <button class="btn btn-primary" id="btn-ai-chat-send" style="height:44px;">发送</button>
+            </div>
+            <div id="ai-chat-result"></div>
+          </div>
+          <div class="editor-split-divider" style="flex-shrink:0;"></div>
+          <div class="editor-split-right" style="background:#eef0f4;display:flex;justify-content:center;padding:20px;">
+            <iframe id="preview-frame-ai" title="简历预览" style="border:none;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.12);width:210mm;min-height:297mm;transform:scale(.65);transform-origin:top center;"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <!-- 结构化模式 -->
+      <div class="editor-panel hidden" id="panel-structured">
+        <!-- 模块 Tab + 可见性 -->
+        <div class="module-tabs" id="module-tabs"></div>
+        <button class="module-tab-add" id="btn-add-module" style="display:none;">+ 添加模块</button>
+        <span id="add-module-wrap" style="display:none;">
+          <input id="add-module-input" class="skill-tag-input" placeholder="模块名" style="width:100px;" onkeydown="if(event.key==='Enter')confirmAddModule();if(event.key==='Escape')cancelAddModule();" onblur="setTimeout(cancelAddModule,150)">
+          <button class="btn btn-sm" style="padding:2px 8px;" onclick="confirmAddModule()">✓</button>
+          <button class="btn btn-ghost btn-sm" style="padding:2px 6px;" onclick="cancelAddModule()">✕</button>
+        </span>
+        <div id="visibility-panel" style="display:none;position:absolute;top:100px;left:24px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;z-index:50;box-shadow:0 4px 12px rgba(0,0,0,.1);min-width:160px;"></div>
+
+        <!-- 表单 + 预览 分栏 -->
+        <div class="editor-split">
+          <div class="editor-split-left">
+            <div class="structured-form" id="structured-form"></div>
+          </div>
+          <div class="editor-split-divider" id="split-divider" title="拖动调整宽度"></div>
+          <div class="editor-split-right" id="preview-container">
+            <div class="preview-topbar">
+              <span id="preview-zoom-label">简历预览 · 65%</span>
+              <div style="display:flex;gap:4px;">
+                <button class="btn btn-sm" id="btn-zoom-out" title="缩小">−</button>
+                <button class="btn btn-sm" id="btn-zoom-in" title="放大">+</button>
+                <button class="btn btn-sm" id="btn-refresh-preview" title="强制刷新">🔄</button>
+              </div>
+            </div>
+            <div style="flex:1;overflow:auto;display:flex;justify-content:center;padding:16px;">
+              <iframe id="preview-frame" title="简历预览"></iframe>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部操作栏 -->
+      <div class="editor-actions">
+        <input type="text" id="resume-title-input" placeholder="简历标题" oninput="document.getElementById('topbar-resume-title').value=this.value">
+        <button class="btn btn-primary" id="btn-save-resume">保存</button>
+        <button class="btn btn-sm" id="btn-analyze-resume">🤖 AI 分析</button>
+        <button class="btn btn-sm" id="btn-optimize-resume">✨ AI 优化</button>
+        <button class="btn btn-ghost btn-sm" id="btn-cancel-editor">取消</button>
+      </div>
+      <div id="analysis-result" class="analysis-panel hidden"></div>
+      <div id="optimize-result" class="optimize-panel hidden"></div>
+    </div>
+  </section>
+
+  <!-- AI 设置 -->
+  <section class="page" id="page-settings">
+    <h2 class="page-title">⚙️ AI 设置</h2>
+    <div class="card settings-form">
+      <div class="form-group">
+        <label>AI 供应商</label>
+        <select id="ai-provider" onchange="onProviderChange()">
+          <option value="">-- 请选择 --</option>
+          <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+          <option value="deepseek">DeepSeek 官方</option>
+          <option value="volcengine">火山引擎 (豆包)</option>
+          <option value="openai">OpenAI 官方</option>
+          <option value="custom">🖊️ 自定义</option>
+        </select>
+      </div>
+      <div class="form-group"><label>API 地址</label><input type="text" id="ai-api-url" placeholder="选择供应商后自动填充，或手动输入"></div>
+      <div class="form-group"><label>API Key</label><div class="input-eye-wrap"><input type="password" id="ai-api-key" placeholder="sk-..."><button type="button" class="eye-btn" id="btn-toggle-key" title="显示/隐藏 API Key" onclick="toggleApiKeyVisibility()">👁️</button></div></div>
+      <div class="form-group">
+        <label>模型</label>
+        <select id="ai-model-preset" onchange="onModelPresetChange()">
+          <option value="">-- 选择供应商后出现 --</option>
+        </select>
+        <input type="text" id="ai-model" placeholder="或手动输入模型名" style="margin-top:8px;">
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="btn-save-ai">保存配置</button>
+        <button class="btn" id="btn-test-ai">🔗 测试连接</button>
+      </div>
+      <div id="ai-test-result"></div>
+    </div>
+  </section>
+
+  <!-- 导出 -->
+  <section class="page" id="page-export">
+    <h2 class="page-title">📥 导出数据</h2>
+    <div class="card export-card">
+      <p>当前共 <strong id="export-count">0</strong> 条投递记录</p>
+      <div class="export-actions">
+        <button class="btn btn-primary" id="btn-export-csv">📄 导出 CSV</button>
+        <button class="btn btn-primary" id="btn-export-xlsx">📊 导出 Excel</button>
+        <button class="btn" id="btn-export-json">📦 导出 JSON</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 模拟面试 -->
+  <section class="page" id="page-interview">
+    <h2 class="page-title">🎯 AI 模拟面试</h2>
+    <div id="interview-setup" class="card">
+      <h3>面试设置</h3>
+      <p style="font-size:13px;color:#666;margin-bottom:16px;">AI 将扮演 HR，根据你提供的岗位 JD 和简历进行分阶段面试提问。回答得越详细，AI 追问越有深度。</p>
+      <button class="btn btn-primary" id="btn-open-interview-modal">🚀 开始面试</button>
+    </div>
+
+    <!-- 面试设置模态框 -->
+    <div class="modal-overlay hidden" id="interview-modal-overlay">
+      <div class="modal" style="max-width:1800px;width:95%;max-height:90vh;">
+        <button class="modal-close" id="btn-close-interview-modal">✕</button>
+        <h3>🎯 模拟面试设置</h3>
+        <div class="sf-field">
+          <label>公司名称</label>
+          <input type="text" id="modal-interview-company" placeholder="如：字节跳动">
+        </div>
+        <div class="sf-field">
+          <label>岗位名称</label>
+          <input type="text" id="modal-interview-job" placeholder="如：前端开发工程师">
+        </div>
+        <div class="sf-field">
+          <label>岗位 JD（职位描述）</label>
+          <textarea id="modal-interview-jd" rows="6" placeholder="粘贴岗位 JD 内容：岗位职责、任职要求等，越详细面试越真实"></textarea>
+        </div>
+        <div class="sf-field">
+          <label>简历内容（可选）</label>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+            <select id="modal-interview-resume-select" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid var(--border);font-size:12px;">
+              <option value="">-- 从简历管理导入，或下方手动输入 --</option>
+            </select>
+          </div>
+          <textarea id="modal-interview-resume" rows="4" placeholder="粘贴你的简历内容，让 AI 针对性地提问。也可留空进行通用模拟面试"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+          <button class="btn btn-ghost" id="btn-cancel-interview-modal">取消</button>
+          <button class="btn btn-primary" id="btn-confirm-interview">🚀 开始面试</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="interview-room" class="card hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3>面试进行中 <span id="interview-phase-badge" style="font-size:12px;font-weight:400;">开场</span></h3>
+        <button class="btn btn-ghost btn-sm" id="btn-end-interview">结束面试</button>
+      </div>
+      <div class="interview-chat" id="interview-chat"></div>
+      <div class="interview-input-row">
+        <textarea id="interview-input" placeholder="输入你的回答..." rows="3"></textarea>
+        <button class="btn btn-primary" id="btn-send-answer">发送</button>
+      </div>
+    </div>
+
+    <div id="interview-report" class="card hidden"></div>
+  </section>
+
+  <!-- ── AI 生成简历弹窗 ── -->
+  <div class="modal-overlay hidden" id="modal-generate-overlay">
+    <div class="modal" style="max-width:600px;">
+      <button class="modal-close" id="btn-close-generate-modal">✕</button>
+      <h3>🤖 AI 一键生成简历</h3>
+      <div class="sf-field"><label>目标岗位</label><input type="text" id="gen-target-position" placeholder="如：Python后端开发工程师"></div>
+      <div class="sf-field"><label>个人背景描述</label><textarea id="gen-personal-info" rows="6" placeholder="描述你的教育背景、技能、项目经历、实习经历等。越详细，AI 生成效果越好。&#10;&#10;例如：我是一所211大学的计算机专业硕士，研究方向是自然语言处理。我熟练掌握 Python 和 PyTorch，独立完成过一个基于 BERT 的文本分类项目。我在 XX 科技公司有 6 个月的 NLP 算法实习经历..."></textarea></div>
+      <div style="font-size:11px;color:#888;margin-bottom:12px;">💡 AI 只会基于你提供的事实生成简历，不会编造任何信息。</div>
+      <div id="generate-result" class="hidden"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-ghost" id="btn-cancel-generate-modal">取消</button>
+        <button class="btn btn-primary" id="btn-confirm-generate">🚀 生成简历</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── AI 评分弹窗 ── -->
+  <div class="modal-overlay hidden" id="modal-score-overlay">
+    <div class="modal" style="max-width:650px;">
+      <button class="modal-close" id="btn-close-score-modal">✕</button>
+      <h3>📊 7 维度简历评分</h3>
+      <div class="sf-field"><label>目标岗位（可选）</label><input type="text" id="score-target-position" placeholder="如：前端开发工程师"></div>
+      <div class="sf-field"><label>岗位 JD（可选）</label><textarea id="score-jd-text" rows="3" placeholder="粘贴目标岗位的职位描述，可获得更精准的岗位匹配度评估"></textarea></div>
+      <p style="font-size:12px;color:#888;margin-bottom:12px;">将使用当前编辑器中的简历内容进行评分。</p>
+      <div id="score-result"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-ghost" id="btn-cancel-score-modal">取消</button>
+        <button class="btn btn-primary" id="btn-confirm-score">📊 开始评分</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── JD 匹配弹窗 ── -->
+  <div class="modal-overlay hidden" id="modal-jdmatch-overlay">
+    <div class="modal" style="max-width:700px;">
+      <button class="modal-close" id="btn-close-jdmatch-modal">✕</button>
+      <h3>🎯 JD 匹配分析</h3>
+      <div class="sf-field"><label>岗位 JD（职位描述）</label><textarea id="jdmatch-jd-text" rows="5" placeholder="粘贴目标岗位的完整 JD：岗位职责、任职要求等。AI 会对比你的简历分析匹配度并给出优化建议。"></textarea></div>
+      <div class="sf-field"><label>公司名称（可选）</label><input type="text" id="jdmatch-company" placeholder="如：字节跳动"></div>
+      <div class="sf-field"><label>岗位名称（可选）</label><input type="text" id="jdmatch-job-title" placeholder="如：后端开发工程师"></div>
+      <p style="font-size:12px;color:#888;margin-bottom:12px;">将使用当前编辑器中的简历内容进行匹配分析。</p>
+      <div id="jdmatch-result"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-ghost" id="btn-cancel-jdmatch-modal">取消</button>
+        <button class="btn btn-primary" id="btn-confirm-jdmatch">🎯 分析匹配</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script src="/js/app.js"></script>
+<script src="/js/resume-editor.js"></script>
+<script src="/js/interview.js"></script>
+</body>
+</html>
