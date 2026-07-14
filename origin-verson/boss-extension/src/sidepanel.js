@@ -67,7 +67,7 @@ document.querySelectorAll('.preset-btn').forEach(btn => {
 });
 
 // 活跃状态 chips
-let selectedActivity = ['不限'];
+let selectedActivity = ['在线', '刚刚活跃', '今日活跃', '3日内活跃', '本周活跃'];
 document.querySelectorAll('#activityChips .chip').forEach(chip => {
   chip.addEventListener('click', () => {
     const val = chip.dataset.val;
@@ -91,7 +91,7 @@ document.querySelectorAll('#activityChips .chip').forEach(chip => {
       }
     }
   });
-  if (chip.dataset.val === '不限') chip.classList.add('active');
+  if (selectedActivity.includes(chip.dataset.val)) chip.classList.add('active');
 });
 
 // 策略选择器
@@ -560,7 +560,12 @@ function loadCfg() {
       const stratCard = document.querySelector('.strategy-card input[value="' + d.conversationStrategy + '"]');
       if (stratCard) stratCard.closest('.strategy-card').classList.add('active');
     }
-    if (d.recruiterActivityStatus) selectedActivity = d.recruiterActivityStatus;
+    if (d.recruiterActivityStatus) {
+      selectedActivity = d.recruiterActivityStatus;
+      document.querySelectorAll('#activityChips .chip').forEach(c => {
+        c.classList.toggle('active', selectedActivity.includes(c.dataset.val));
+      });
+    }
     $('hrInactiveDays').value = d.hrInactiveDays || 14;
     $('useDesktopBridge').checked = d.useDesktopBridge === true;
     $('smartSchedule').checked = d.smartSchedule !== false;
@@ -587,7 +592,7 @@ async function saveCfg() {
   const obj = {
     keyword: $('keyword').value.trim(),
     city: $('city').value.trim(),
-    count: parseInt($('count').value) || 20,
+    count: parseInt($('count').value) || 60,
     welfare: $('welfare').value.trim(),
     dailyLimit: parseInt($('dailyLimit').value) || 100,
     aiApiKey: $('aiApiKey').value.trim(),

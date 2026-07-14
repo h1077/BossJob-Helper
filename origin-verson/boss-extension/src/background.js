@@ -4,10 +4,24 @@ importScripts('/src/selectors.js');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (a, b) => sleep(a + Math.random() * (b - a));
 
+// SW-safe sleep: 长睡眠拆成小块 + storage 心跳，防止 MV3 SW 被杀死导致 Promise 丢失
+const safeSleep = async (ms) => {
+  const CHUNK = 5000; // 每 5 秒心跳一次
+  while (ms > 0) {
+    const t = Math.min(ms, CHUNK);
+    await sleep(t);
+    ms -= t;
+    // 心跳：storage 写入是"活动"，重置 SW 的 30s 倒计时
+    if (ms > 0) {
+      await chrome.storage.local.set({ _sw_heartbeat: Date.now() }).catch(() => {});
+    }
+  }
+};
+
 let state = {
   phase: 'idle', paused: false, aborted: false,
   jobs: [], queue: [], queueIndex: 0, results: [],
-  processed: {}
+  processed: {}, greetings: {}
 };
 
 // ── 风险控制 / 冷却退避系统 ──
@@ -125,7 +139,7 @@ async function getCfg() {
   ]);
 }
 function defaultCfg(cfg) {
-  cfg.count = parseInt(cfg.count) || 20;
+  cfg.count = parseInt(cfg.count) || 60;
   cfg.matchMinScore = parseInt(cfg.matchMinScore) || 3;
   cfg.useResumeMatch = cfg.useResumeMatch !== false;
   return cfg;
@@ -574,7 +588,7 @@ async function runCollect() {
 
     const r = await sendToTab(tab.id, {
       type: 'SCRAPE',
-      count: cfg.count || 20,
+      count: cfg.count || 60,
       welfareKeywords: welfareKeywords
     });
     if (r && r.success && r.jobs) {
@@ -757,6 +771,33 @@ async function runCollect() {
   // 保存
   await chrome.storage.local.set({ sw_queue: state.queue, sw_queue_index: 0 });
 
+  // ── 批量预生成招呼语（3个并发，省去投递阶段的逐个AI调用）──
+  state.greetings = {};
+  const total = state.queue.length;
+  if (total > 0) {
+    log('⚡ 预生成 ' + total + ' 个岗位的招呼语（3个并发）...');
+    const CONC = 3;
+    let done = 0;
+    for (let i = 0; i < total; i += CONC) {
+      const batch = state.queue.slice(i, i + CONC);
+      await Promise.all(batch.map(async (job) => {
+        try {
+          const greeting = await generateGreeting(cfg, job, '');
+          if (greeting && greeting.length >= GREETING_MIN_LENGTH) {
+            state.greetings[job.id] = greeting;
+          }
+        } catch (e) { /* 单个失败不阻塞其他 */ }
+        done++;
+        if (done % 10 === 0 || done === total) {
+          log('  预生成进度: ' + done + '/' + total);
+        }
+      }));
+    }
+    const okCount = Object.keys(state.greetings).length;
+    log('✓ 预生成完成: ' + okCount + '/' + total + ' 个招呼语就绪');
+    await chrome.storage.local.set({ sw_greetings: state.greetings });
+  }
+
   state.phase = 'review'; pushPhase();
   chrome.runtime.sendMessage({ type: 'QUEUE_READY', queue: state.queue }).catch(() => {});
 }
@@ -770,9 +811,10 @@ async function runDeliver() {
 
   // 从 storage 恢复（SW 可能被回收）
   if (!state.queue.length) {
-    const d = await chrome.storage.local.get(['sw_queue', 'sw_queue_index']);
+    const d = await chrome.storage.local.get(['sw_queue', 'sw_queue_index', 'sw_greetings']);
     state.queue = d.sw_queue || [];
     state.queueIndex = d.sw_queue_index || 0;
+    state.greetings = d.sw_greetings || {};
   }
   const cfg = defaultCfg(await getCfg());
   const searchUrl = buildSearchUrl(cfg);
@@ -781,7 +823,7 @@ async function runDeliver() {
   for (let i = state.queueIndex; i < total; i++) {
     if (state.aborted || state.paused) break;
 
-    // 智能调度
+    // 智能调度（仅保留午休/周末检测）
     if (cfg.smartSchedule) {
       const now = new Date();
       const dow = now.getDay(); // 0=Sun, 6=Sat
@@ -793,15 +835,9 @@ async function runDeliver() {
       }
       if (hour >= 12 && hour < 14) {
         log('⏸ 午休时段暂停（12-14点），14点后恢复', 'warn');
-        await sleep(60000); // wait 1 min
+        await safeSleep(60000); // wait 1 min (SW-safe)
         i--;
         continue;
-      }
-      // 每投 2-5 个岗位后随机间隔（模拟人类行为，避免固定模式被检测）
-      if (i > 0 && i % (2 + Math.floor(Math.random() * 4)) === 0) {
-        const restSeconds = 10 + Math.floor(Math.random() * 26);
-        log('  智能间隔：休息' + restSeconds + '秒...');
-        await sleep(restSeconds * 1000);
       }
     }
 
@@ -832,19 +868,23 @@ async function runDeliver() {
       }
     }
 
-    // 3. 生成招呼语
-    log('  生成招呼语...');
-    let greeting = '';
-    try { greeting = await generateGreeting(cfg, job, jd); } catch (e) { log('  生成异常：' + e.message, 'error'); }
-    if (!greeting || greeting.length < GREETING_MIN_LENGTH) {
-      const reason = !greeting ? 'AI返回空' : '招呼语过短(' + greeting.length + '字)';
-      log('  招呼语不合格（' + (greeting ? greeting.length + '字' : '空') + '），跳过', 'warn');
-      skippedCount++;
-      skippedReasons[reason] = (skippedReasons[reason] || 0) + 1;
-      progress(i + 1, total, '投递');
-      continue;
+    // 3. 获取招呼语（优先用预生成，未命中则现场生成）
+    let greeting = state.greetings[job.id] || '';
+    if (greeting && greeting.length >= GREETING_MIN_LENGTH) {
+      log('  招呼语(' + greeting.length + '字，预生成): ' + greeting.slice(0, 60) + '...');
+    } else {
+      log('  生成招呼语（预生成未命中，现场生成）...');
+      try { greeting = await generateGreeting(cfg, job, jd); } catch (e) { log('  生成异常：' + e.message, 'error'); }
+      if (!greeting || greeting.length < GREETING_MIN_LENGTH) {
+        const reason = !greeting ? 'AI返回空' : '招呼语过短(' + greeting.length + '字)';
+        log('  招呼语不合格（' + (greeting ? greeting.length + '字' : '空') + '），跳过', 'warn');
+        skippedCount++;
+        skippedReasons[reason] = (skippedReasons[reason] || 0) + 1;
+        progress(i + 1, total, '投递');
+        continue;
+      }
+      log('  招呼语(' + greeting.length + '字): ' + greeting.slice(0, 60) + '...');
     }
-    log('  招呼语(' + greeting.length + '字): ' + greeting.slice(0, 60) + '...');
 
     // 3. 点击"立即沟通" → 跳转聊天页
     log('  建立联系...');
@@ -913,9 +953,8 @@ async function runDeliver() {
     await chrome.storage.local.set({ sw_queue_index: i + 1 });
     progress(i + 1, total, '投递');
 
-    // 使用风险感知延迟替代固定延迟
-    const dynamicDelay = RiskManager.getDelay();
-    await sleep(dynamicDelay);
+    // 快速模式：固定 2.5-4.5s 随机延迟（风控异常时 RiskManager 在上方已处理暂停）
+    await rand(2500, 4500);
   }
 
   const ok = state.results.filter(r => r.ok).length;
