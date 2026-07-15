@@ -271,7 +271,22 @@ async function generateGreeting(cfg, job, jd) {
   }
 
   function buildUserMessage() {
-    const jdText = (jd && jd.trim()) ? jd.trim().slice(0, 2000) : ((job.tags || []).join('、'));
+    // 无 JD 时用岗位的完整字段构建描述（预生成场景）；有 JD 时直接用 JD
+    function _buildJobDescFromFields() {
+      const parts = [];
+      if (job.name) parts.push('岗位名称：' + job.name);
+      if (job.company) parts.push('公司：' + job.company);
+      if (job.companyIndustry) parts.push('公司行业：' + job.companyIndustry);
+      if (job.salary) parts.push('薪资范围：' + job.salary);
+      if (job.location) parts.push('工作地点：' + job.location);
+      if (job.experience) parts.push('经验要求：' + job.experience);
+      if (job.education) parts.push('学历要求：' + job.education);
+      // skills 是 BOSS API 返回的岗位要求技能（比 jobLabels/tags 更精准）
+      const skillList = (job.skills && job.skills.length) ? job.skills : (job.tags || []);
+      if (skillList.length) parts.push('岗位要求：' + skillList.join('、'));
+      return parts.join('\n');
+    }
+    const jdText = (jd && jd.trim()) ? jd.trim().slice(0, 2000) : _buildJobDescFromFields();
     const companyInfo = job.company ? ('（' + job.company + '）') : '';
     const salaryInfo = job.salary ? (' | 薪资：' + job.salary) : '';
     let extraBlocks = '';
@@ -286,9 +301,11 @@ async function generateGreeting(cfg, job, jd) {
 
   // ── 降级模板（AI 全部失败时的兜底）──
   function buildFallbackGreeting() {
-    const jdText = (jd && jd.trim()) ? jd.trim().slice(0, 2000) : ((job.tags || []).join('、'));
+    // 无 JD 时用岗位字段构建描述（优先 skills，降级 tags）
+    const skillList = (job.skills && job.skills.length) ? job.skills : (job.tags || []);
+    const jdTextForFallback = (jd && jd.trim()) ? jd.trim().slice(0, 2000) : [job.name, ...skillList, job.experience, job.education].filter(Boolean).join('、');
     // 从 JD 文本中提取高频中文词组（2-4字），不依赖写死的技能列表
-    const jdWords = jdText.replace(/[^一-龥a-zA-Z]/g, ' ').split(/\s+/).filter(w => w.length >= 2 && w.length <= 6);
+    const jdWords = jdTextForFallback.replace(/[^一-龥a-zA-Z]/g, ' ').split(/\s+/).filter(w => w.length >= 2 && w.length <= 6);
     const wordFreq = {};
     jdWords.forEach(w => { wordFreq[w] = (wordFreq[w] || 0) + 1; });
     const topWords = Object.entries(wordFreq)
@@ -385,7 +402,9 @@ async function setAiCache(key, text) {
 }
 
 // ── 简历匹配评分 ──
-function extractKeywords(text) {
+
+// 从文本中提取关键词 token（纯文本切词）
+function extractTokensFromText(text) {
   if (!text) return [];
   const keywords = new Set();
   const lines = text.split(/[\n\r]+/);
@@ -399,6 +418,32 @@ function extractKeywords(text) {
     }
   }
   return Array.from(keywords);
+}
+
+function extractKeywords(text) {
+  if (!text) return [];
+
+  // 1. 尝试 JSON 解析（桌面端六维度分析结果）
+  try {
+    const parsed = JSON.parse(text);
+    const sources = [];
+    // 提取 strengths 数组
+    if (Array.isArray(parsed.strengths)) sources.push(...parsed.strengths);
+    // 提取 pre_match_analysis 和 icebreaker_suggestion
+    if (parsed.pre_match_analysis) sources.push(parsed.pre_match_analysis);
+    if (parsed.icebreaker_suggestion) sources.push(parsed.icebreaker_suggestion);
+    // 提取各维度 analysis 字段
+    if (parsed.dimensions && typeof parsed.dimensions === 'object') {
+      Object.values(parsed.dimensions).forEach(d => {
+        if (d && d.analysis) sources.push(d.analysis);
+      });
+    }
+    // 从合并文本中提取 token
+    return extractTokensFromText(sources.join('\n'));
+  } catch (e) { /* 非 JSON，走原有文本解析 */ }
+
+  // 2. 降级：纯文本切词逻辑
+  return extractTokensFromText(text);
 }
 function scoreJobMatch(job, keywords) {
   if (!keywords || !keywords.length) return 99;
@@ -511,6 +556,58 @@ function parseWelfare(welfareStr) {
   return welfareStr.split(/[，,、\s]+/).map(k => k.trim()).filter(Boolean);
 }
 
+// ── 薪资过滤 ──
+const SALARY_RANGE_MAP = {
+  '402': { min: 0, max: 3000 },       // 3K以下
+  '403': { min: 3000, max: 5000 },     // 3-5K
+  '404': { min: 5000, max: 10000 },    // 5-10K
+  '405': { min: 10000, max: 20000 },   // 10-20K
+  '406': { min: 20000, max: 50000 },   // 20-50K
+  '407': { min: 50000, max: Infinity } // 50K以上
+};
+
+// 解析 BOSS 薪资字符串 → {min, max}，解析失败返回 null
+function parseSalaryRange(salaryStr) {
+  if (!salaryStr) return null;
+  // "10-20K" / "10~20K" / "10—20K"
+  const rangeMatch = salaryStr.match(/([\d.]+)\s*[-~—到]\s*([\d.]+)\s*[Kk]/);
+  if (rangeMatch) {
+    return { min: parseFloat(rangeMatch[1]) * 1000, max: parseFloat(rangeMatch[2]) * 1000 };
+  }
+  // "25K·14薪" / "25K"
+  const singleMatch = salaryStr.match(/([\d.]+)\s*[Kk]/);
+  if (singleMatch) {
+    const v = parseFloat(singleMatch[1]) * 1000;
+    return { min: v, max: v };
+  }
+  // "200-400元/天"
+  const dayMatch = salaryStr.match(/([\d.]+)\s*[-~—到]\s*([\d.]+)\s*元\/天/);
+  if (dayMatch) {
+    return { min: parseFloat(dayMatch[1]) * 22, max: parseFloat(dayMatch[2]) * 22 };
+  }
+  // "3K以下" → 0-3000，"50K以上" → 50000-Infinity
+  if (/以下/.test(salaryStr)) {
+    const m = salaryStr.match(/([\d.]+)\s*[Kk]/);
+    return m ? { min: 0, max: parseFloat(m[1]) * 1000 } : null;
+  }
+  if (/以上/.test(salaryStr)) {
+    const m = salaryStr.match(/([\d.]+)\s*[Kk]/);
+    return m ? { min: parseFloat(m[1]) * 1000, max: Infinity } : null;
+  }
+  return null;
+}
+
+// 检查岗位薪资是否在用户设定的范围内（有交集即通过）
+function isSalaryInRange(jobSalary, userRangeCode) {
+  if (!userRangeCode || !jobSalary) return true; // 未设薪资范围，不过滤
+  const userRange = SALARY_RANGE_MAP[userRangeCode];
+  if (!userRange) return true;
+  const jobRange = parseSalaryRange(jobSalary);
+  if (!jobRange) return true; // 解析失败，保留岗位（宽容策略）
+  // 岗位薪资与用户范围有交集即通过
+  return jobRange.min <= userRange.max && jobRange.max >= userRange.min;
+}
+
 // ── 桌面桥接 ──
 let _desktopToken = '';
 async function getDesktopToken() {
@@ -616,6 +713,7 @@ async function runCollect() {
             companyName: job.company, jobName: job.name,
             salary: job.salary, location: job.location,
             experience: job.experience, education: job.education,
+            skills: job.skills || [],
             jd: job.jd, companyStage: job.companyStage,
             companyScale: job.companyScale, companyIndustry: job.companyIndustry,
             status: 'not_applied'
@@ -652,7 +750,9 @@ async function runCollect() {
   if (weaknesses.length > 0) {
     log('提取弱项(' + weaknesses.length + '个): ' + weaknesses.slice(0, 15).join(', '), 'info');
   }
-  if (cfg.useResumeMatch && keywords.length === 0) {
+  if (!cfg.useResumeMatch) {
+    log('⚠ 简历匹配已关闭（useResumeMatch=false），关键词提取已跳过。开启后可提高投递精准度', 'warn');
+  } else if (cfg.useResumeMatch && keywords.length === 0) {
     log('⚠ 已开启简历匹配但未填写简历分析，匹配功能实际未生效（需先点"AI分析简历"）', 'warn');
   }
   log('welfare: "' + (cfg.welfare || '(未设置)') + '" → ' + welfareKeywords.length + ' 个关键词: [' + welfareKeywords.join(', ') + ']', 'info');
@@ -661,9 +761,10 @@ async function runCollect() {
   log('blacklist 行数: ' + ((cfg.blacklist || '').split('\n').filter(Boolean).length), 'info');
   log('已投递公司数: ' + appliedSet.size, 'info');
   log('dailyLimit: ' + cfg.dailyLimit, 'info');
+  log('salaryRange: ' + (cfg.salaryRange || '(未设置)'), 'info');
 
   // 过滤计数器
-  const filterStats = { welfare: 0, headhunter: 0, inactive: 0, blacklist: 0, duplicate: 0, lowMatch: 0, passed: 0, noResume: 0 };
+  const filterStats = { welfare: 0, headhunter: 0, salary: 0, inactive: 0, blacklist: 0, duplicate: 0, lowMatch: 0, passed: 0, noResume: 0 };
   const sampleRejects = [];
 
   state.queue = [];
@@ -687,6 +788,15 @@ async function runCollect() {
       if (!allMatch) {
         filterStats.welfare++;
         if (sampleRejects.length < 3) sampleRejects.push({ name: job.name, reason: '福利不匹配', detail: '需要: [' + welfareKeywords.join(', ') + '] | 岗位文本: ' + haystack.slice(0, 100) });
+        continue;
+      }
+    }
+
+    // 薪资范围过滤
+    if (cfg.salaryRange) {
+      if (!isSalaryInRange(job.salary, cfg.salaryRange)) {
+        filterStats.salary++;
+        if (sampleRejects.length < 5) sampleRejects.push({ name: job.name, reason: '薪资不符', detail: '岗位薪资: ' + (job.salary || '未知') + ' | 用户设定: ' + cfg.salaryRange });
         continue;
       }
     }
@@ -740,7 +850,7 @@ async function runCollect() {
 
   // ── 调试日志：筛选统计 ──
   log('─── 📊 筛选统计 ───', 'info');
-  log('总收集: ' + state.jobs.length + ' | ✅通过: ' + filterStats.passed + ' | ❌福利: ' + filterStats.welfare + ' | ❌猎头: ' + filterStats.headhunter + ' | ❌不活跃: ' + filterStats.inactive + ' | ❌黑名单: ' + filterStats.blacklist + ' | ❌去重: ' + filterStats.duplicate + ' | ❌低匹配分: ' + filterStats.lowMatch + ' | ℹ️无简历关键词: ' + filterStats.noResume, 'info');
+  log('总收集: ' + state.jobs.length + ' | ✅通过: ' + filterStats.passed + ' | ❌福利: ' + filterStats.welfare + ' | ❌薪资: ' + filterStats.salary + ' | ❌猎头: ' + filterStats.headhunter + ' | ❌不活跃: ' + filterStats.inactive + ' | ❌黑名单: ' + filterStats.blacklist + ' | ❌去重: ' + filterStats.duplicate + ' | ❌低匹配分: ' + filterStats.lowMatch + ' | ℹ️无简历关键词: ' + filterStats.noResume, 'info');
   if (sampleRejects.length > 0) {
     log('─── 📋 被拒样本（前' + sampleRejects.length + '个）───', 'warn');
     sampleRejects.forEach(s => log('  ✗ ' + s.name + ' → ' + s.reason + ' | ' + (s.detail || ''), 'warn'));
@@ -794,7 +904,7 @@ async function runCollect() {
       }));
     }
     const okCount = Object.keys(state.greetings).length;
-    log('✓ 预生成完成: ' + okCount + '/' + total + ' 个招呼语就绪');
+    log('✓ 预生成完成: ' + okCount + '/' + total + ' 个招呼语就绪（基于岗位标签/字段生成，投递时会补充JD重新生成）');
     await chrome.storage.local.set({ sw_greetings: state.greetings });
   }
 

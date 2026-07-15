@@ -17,9 +17,11 @@
     const pageSize = Math.min(count, 30);
 
     for (let page = 1; jobs.length < count && page <= 5; page++) {
-      const apiUrl = '/wapi/zpgeek/search/joblist.json?' +
+      const salary = url.searchParams.get('salary') || '';
+    const apiUrl = '/wapi/zpgeek/search/joblist.json?' +
         'query=' + encodeURIComponent(query) +
         '&city=' + city +
+        (salary ? '&salary=' + salary : '') +
         '&page=' + page +
         '&pageSize=' + pageSize;
 
@@ -46,14 +48,18 @@
           salary: item.salaryDesc || '',          // ← 明文薪资！
           location: (item.cityName || '') + (item.areaDistrict ? ' · ' + item.areaDistrict : ''),
           tags: (item.jobLabels || []).filter(Boolean),
+          skills: (item.skills || []).filter(Boolean),       // ← 技能要求，比 tags 更精准
           company: item.brandName || '',
           link: 'https://www.zhipin.com/job_detail/' + id + '.html',
           activeTime: item.bossActiveTime || (item.bossOnline ? '在线' : ''),
           hrName: item.bossName || '',
           hrTitle: item.bossTitle || '',
+          experience: item.jobExperience || '',               // ← 经验要求
+          education: item.jobDegree || '',                    // ← 学历要求
           // 附加信息（可选用于后续筛选）
           brandStage: item.brandStageName || '',
-          brandScale: item.brandScaleName || ''
+          brandScale: item.brandScaleName || '',
+          companyIndustry: item.brandIndustry || ''           // ← 公司行业
         });
         if (jobs.length >= count) break;
       }
@@ -99,7 +105,15 @@
     if (nameEl2) hrName = nameEl2.textContent.trim();
     const titleEl = card.querySelector('.boss-title, .title, [class*="boss-title"]');
     if (titleEl) hrTitle = titleEl.textContent.trim();
-    return { id, name: nameEl ? nameEl.textContent.trim() : '未知', salary: salEl ? salEl.textContent.trim() : '', location: areaEl ? areaEl.textContent.trim() : '', tags, company, link, activeTime, hrName, hrTitle };
+    return {
+      id, name: nameEl ? nameEl.textContent.trim() : '未知',
+      salary: salEl ? salEl.textContent.trim() : '',
+      location: areaEl ? areaEl.textContent.trim() : '',
+      tags, skills: [], company, link,
+      activeTime, hrName, hrTitle,
+      experience: '', education: '',
+      brandStage: '', brandScale: '', companyIndustry: ''
+    };
   }
 
   async function scrapeViaDom(count) {
