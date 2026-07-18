@@ -1,0 +1,132 @@
+@import "tailwindcss";
+@source "../**/*.{vue,ts}";
+
+* { 
+  box-sizing: border-box; 
+  --removed-body-scroll-bar-size: 0px !important;
+}
+html { overflow-y: scroll; }
+body, html body, html body[style] {
+  margin: 0;
+  padding-right: 0 !important;
+  color: #111827;
+  background: #f7f8fb;
+  overflow: visible !important;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+a { color: inherit; text-decoration: none; }
+.thin-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.thin-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+
+/* 全局富文本编辑器及展示内容样式重置（绝对强制，抵抗 Tailwind v4 preflight 样式重置） */
+.rich-text-editor ul, .announcement-content ul, .history-announcement-content ul, .ai-records-hint ul {
+  list-style: disc !important;
+  list-style-type: disc !important;
+  margin: 0.6em 0 !important;
+  padding-left: 2rem !important;
+}
+.rich-text-editor ol, .announcement-content ol, .history-announcement-content ol, .ai-records-hint ol {
+  list-style: decimal !important;
+  list-style-type: decimal !important;
+  margin: 0.6em 0 !important;
+  padding-left: 2rem !important;
+}
+.rich-text-editor li, .announcement-content li, .history-announcement-content li, .ai-records-hint li {
+  display: list-item !important;
+  list-style-position: outside !important;
+  margin-bottom: 0.2em !important;
+}
+.rich-text-editor s, .rich-text-editor strike, .rich-text-editor del, .rich-text-editor span[style*="line-through"],
+.announcement-content s, .announcement-content strike, .announcement-content del, .announcement-content span[style*="line-through"],
+.history-announcement-content s, .history-announcement-content strike, .history-announcement-content del, .history-announcement-content span[style*="line-through"],
+.ai-records-hint s, .ai-records-hint strike, .ai-records-hint del, .ai-records-hint span[style*="line-through"] {
+  text-decoration: line-through !important;
+  text-decoration-line: line-through !important;
+}
+.rich-text-editor u, .announcement-content u, .history-announcement-content u, .ai-records-hint u {
+  text-decoration: underline !important;
+}
+.rich-text-editor b, .rich-text-editor strong, .announcement-content b, .announcement-content strong, .history-announcement-content b, .history-announcement-content strong, .ai-records-hint b, .ai-records-hint strong {
+  font-weight: bold !important;
+}
+.rich-text-editor i, .rich-text-editor em, .announcement-content i, .announcement-content em, .history-announcement-content i, .history-announcement-content em, .ai-records-hint i, .ai-records-hint em {
+  font-style: italic !important;
+}
+.rich-text-editor blockquote, .announcement-content blockquote, .history-announcement-content blockquote, .ai-records-hint blockquote {
+  margin: 0.8em 0 !important;
+  border-left: 3px solid #d4d4d8 !important;
+  background: #fafafa !important;
+  padding: 0.6rem 0.9rem !important;
+  color: #52525b !important;
+}
+
+/* 旧版浏览器兜底：Tailwind v4 默认颜色使用 oklch/color-mix，
+   旧 Chromium/Safari 不支持时会导致深色按钮、半透明面板等元素“消失”。 */
+@supports not (color: oklch(0.5 0 0)) {
+  :root {
+    --color-white: #ffffff;
+    --color-black: #000000;
+    --color-zinc-50: #fafafa;
+    --color-zinc-100: #f4f4f5;
+    --color-zinc-200: #e4e4e7;
+    --color-zinc-300: #d4d4d8;
+    --color-zinc-400: #a1a1aa;
+    --color-zinc-500: #71717a;
+    --color-zinc-600: #52525b;
+    --color-zinc-700: #3f3f46;
+    --color-zinc-800: #27272a;
+    --color-zinc-900: #18181b;
+    --color-zinc-950: #09090b;
+    --color-gray-50: #f9fafb;
+    --color-gray-100: #f3f4f6;
+    --color-gray-200: #e5e7eb;
+    --color-gray-300: #d1d5db;
+    --color-gray-500: #6b7280;
+    --color-gray-600: #4b5563;
+    --color-gray-700: #374151;
+    --color-gray-800: #1f2937;
+    --color-gray-900: #111827;
+    --color-blue-50: #eff6ff;
+    --color-blue-100: #dbeafe;
+    --color-blue-200: #bfdbfe;
+    --color-blue-600: #2563eb;
+    --color-blue-700: #1d4ed8;
+    --color-indigo-50: #eef2ff;
+    --color-indigo-600: #4f46e5;
+    --color-emerald-600: #059669;
+    --color-red-50: #fef2f2;
+    --color-red-100: #fee2e2;
+    --color-red-600: #dc2626;
+    --color-red-700: #b91c1c;
+  }
+}
+
+@supports not (background-color: color-mix(in oklab, white 50%, transparent)) {
+  .bg-white\/40 { background-color: rgba(255, 255, 255, 0.4) !important; }
+  .bg-white\/50 { background-color: rgba(255, 255, 255, 0.5) !important; }
+  .bg-white\/80 { background-color: rgba(255, 255, 255, 0.8) !important; }
+  .bg-white\/90 { background-color: rgba(255, 255, 255, 0.9) !important; }
+  .bg-white\/95 { background-color: rgba(255, 255, 255, 0.95) !important; }
+  .bg-zinc-50\/30 { background-color: rgba(250, 250, 250, 0.3) !important; }
+  .bg-zinc-50\/50 { background-color: rgba(250, 250, 250, 0.5) !important; }
+  .bg-zinc-50\/70 { background-color: rgba(250, 250, 250, 0.7) !important; }
+  .bg-zinc-50\/80 { background-color: rgba(250, 250, 250, 0.8) !important; }
+  .bg-zinc-100\/50 { background-color: rgba(244, 244, 245, 0.5) !important; }
+  .bg-zinc-100\/60 { background-color: rgba(244, 244, 245, 0.6) !important; }
+  .bg-zinc-100\/80 { background-color: rgba(244, 244, 245, 0.8) !important; }
+  .bg-zinc-200\/50 { background-color: rgba(228, 228, 231, 0.5) !important; }
+  .bg-zinc-200\/60 { background-color: rgba(228, 228, 231, 0.6) !important; }
+  .bg-zinc-950\/40 { background-color: rgba(9, 9, 11, 0.4) !important; }
+  .bg-zinc-950\/45 { background-color: rgba(9, 9, 11, 0.45) !important; }
+  .bg-blue-50\/70 { background-color: rgba(239, 246, 255, 0.7) !important; }
+  .border-zinc-100\/80 { border-color: rgba(244, 244, 245, 0.8) !important; }
+  .border-zinc-200\/50 { border-color: rgba(228, 228, 231, 0.5) !important; }
+  .border-zinc-200\/60 { border-color: rgba(228, 228, 231, 0.6) !important; }
+  .border-zinc-200\/70 { border-color: rgba(228, 228, 231, 0.7) !important; }
+  .border-zinc-200\/80 { border-color: rgba(228, 228, 231, 0.8) !important; }
+}
+
+@supports not (aspect-ratio: 1 / 1) {
+  .aspect-\[210\/297\] { min-height: 594px; }
+  .aspect-\[4\/3\] { min-height: 220px; }
+}

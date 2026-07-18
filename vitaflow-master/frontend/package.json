@@ -1,0 +1,46 @@
+{
+  "name": "vitaflow-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@types/cropperjs": "^1.1.5",
+    "@vitejs/plugin-vue": "latest",
+    "@vueuse/core": "latest",
+    "axios": "latest",
+    "class-variance-authority": "latest",
+    "clsx": "latest",
+    "cropperjs": "^1.6.2",
+    "dompurify": "latest",
+    "echarts": "^6.1.0",
+    "lucide-vue-next": "latest",
+    "markdown-it": "latest",
+    "pdfjs-dist": "^6.0.227",
+    "pinia": "latest",
+    "radix-vue": "latest",
+    "sortablejs": "latest",
+    "tailwind-merge": "latest",
+    "vue": "latest",
+    "vue-router": "latest",
+    "vuedraggable": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "latest",
+    "@vitejs/plugin-legacy": "^8.0.2",
+    "autoprefixer": "latest",
+    "browserslist": "^4.28.4",
+    "lightningcss": "^1.32.0",
+    "postcss": "latest",
+    "postcss-preset-env": "^11.3.1",
+    "tailwindcss": "latest",
+    "terser": "^5.48.0",
+    "typescript": "latest",
+    "vite": "latest",
+    "vue-tsc": "latest"
+  }
+}

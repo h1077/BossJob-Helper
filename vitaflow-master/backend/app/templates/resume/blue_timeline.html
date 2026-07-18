@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .blue-timeline-template {
+      --timeline-page-top: calc(var(--page-margin-top) * 1mm);
+      --timeline-page-right: calc(var(--page-margin-right) * 1mm);
+      --timeline-page-bottom: calc(var(--page-margin-bottom) * 1mm);
+      --timeline-page-left: calc(var(--page-margin-left) * 1mm);
+      padding: 0;
+      color: #2b2b2b;
+      font-family: {{ config.font_family|css_font_family }};
+      font-size: {{ config.body_font_size or 13 }}px;
+      line-height: {{ config.line_height or 1.52 }};
+    }
+    .blue-timeline-hero {
+      position: relative;
+      min-height: 52mm;
+      padding: var(--timeline-page-top) var(--timeline-page-right) 11mm var(--timeline-page-left);
+      background: var(--theme-color);
+      background-color: var(--theme-color);
+      color: #fff;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      overflow: hidden;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .blue-timeline-hero::after {
+      content: "";
+      position: absolute;
+      right: 0;
+      bottom: -1px;
+      z-index: 0;
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 0 0 7mm 210mm;
+      border-color: transparent transparent #fff transparent;
+    }
+    .blue-timeline-name {
+      position: relative;
+      z-index: 1;
+      margin: 0 34mm 3.5mm 0;
+      color: #fff;
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .blue-timeline-meta {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3mm 4.5mm;
+      max-width: 150mm;
+      margin: 0 34mm 2.4mm 0;
+      color: #fff;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+    .blue-timeline-meta span {
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+    }
+    .blue-timeline-meta svg {
+      width: 4.2mm;
+      height: 4.2mm;
+      margin-right: 1.7mm;
+      flex: 0 0 auto;
+      color: var(--header-icon-color);
+      fill: none;
+      stroke: var(--header-icon-color);
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .blue-timeline-meta svg * {
+      color: var(--header-icon-color) !important;
+      fill: none !important;
+      stroke: var(--header-icon-color) !important;
+    }
+    .timeline-node svg * {
+      color: #fff !important;
+      fill: none !important;
+      stroke: #fff !important;
+    }
+    .blue-timeline-avatar {
+      position: absolute;
+      top: calc(var(--timeline-page-top) - 6mm);
+      right: var(--timeline-page-right);
+      width: 24mm;
+      height: 32mm;
+      object-fit: cover;
+      border-radius: 0;
+      background: #fff;
+      z-index: 1;
+    }
+    .blue-timeline-hero.resume-avatar-left {
+      padding-left: calc(var(--timeline-page-left) + 34mm);
+    }
+    .blue-timeline-hero.resume-avatar-left .blue-timeline-avatar {
+      top: var(--timeline-page-top);
+      right: auto;
+      left: var(--timeline-page-left);
+    }
+    .blue-timeline-hero.resume-avatar-center {
+      padding-top: calc(var(--timeline-page-top) + 32mm);
+      text-align: center;
+    }
+    .blue-timeline-hero.resume-avatar-center .blue-timeline-name {
+      margin-right: 0;
+    }
+    .blue-timeline-hero.resume-avatar-center .blue-timeline-meta {
+      justify-content: center;
+      margin-right: auto;
+      margin-left: auto;
+    }
+    .blue-timeline-hero.resume-avatar-center .blue-timeline-avatar {
+      right: auto;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    .blue-timeline-body {
+      padding: 1mm var(--timeline-page-right) var(--timeline-page-bottom) var(--timeline-page-left);
+    }
+    .timeline-section {
+      position: relative;
+      margin: 0;
+      padding: 0 0 var(--section-margin-bottom) 11mm;
+      border-left: 1.8px solid var(--theme-color);
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .timeline-section:last-child {
+      padding-bottom: 0;
+    }
+    .timeline-node {
+      position: absolute;
+      top: var(--section-margin-top);
+      left: -5.3mm;
+      display: flex;
+      width: 10.5mm;
+      height: 10.5mm;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--theme-color);
+      background-color: var(--theme-color);
+      color: #fff;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .timeline-node svg {
+      width: 5.1mm;
+      height: 5.1mm;
+      fill: none;
+      stroke: #fff;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .timeline-section-title {
+      margin: 0 0 var(--section-title-margin-bottom);
+      padding-top: var(--section-margin-top);
+      color: #111;
+      font-size: {{ (config.title_font_size or 16) + 4 }}px;
+      font-weight: 800;
+      line-height: 1.2;
+      break-after: auto;
+      page-break-after: auto;
+    }
+    .timeline-item {
+      margin: 0 0 3.6mm;
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .timeline-skills .timeline-item {
+      margin-bottom: 1.8mm;
+    }
+    .timeline-awards .timeline-item {
+      margin-bottom: 1.4mm;
+    }
+    .timeline-awards .timeline-item-head {
+      line-height: 1.35;
+    }
+    .timeline-awards .rich-text-body p {
+      margin: 0.4mm 0;
+    }
+    .timeline-item-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8mm;
+      color: #111;
+      font-weight: 700;
+    }
+    .timeline-primary {
+      color: var(--theme-color);
+      font-weight: 800;
+    }
+    .timeline-date {
+      color: #8a8a8a;
+      font-weight: 400;
+      white-space: nowrap;
+    }
+    .timeline-sub {
+      margin: 0.8mm 0 1mm;
+      color: #222;
+    }
+    .timeline-tech {
+      margin: 0.8mm 0 1mm;
+      color: #222;
+      font-weight: 700;
+    }
+    .blue-timeline-template .rich-text-body p {
+      margin: 1mm 0;
+    }
+    .blue-timeline-template .rich-text-body ul,
+    .blue-timeline-template .rich-text-body ol {
+      margin: 1mm 0 1mm 6mm;
+      padding: 0;
+    }
+    .blue-timeline-template .rich-text-body li {
+      margin: 0.6mm 0;
+      padding-left: 0.6mm;
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .blue-timeline-template .tag-row {
+      gap: 1.2mm;
+      margin: 1mm 0;
+    }
+    .blue-timeline-template .timeline-skills .tag-row {
+      margin: 0.5mm 0 0.8mm;
+    }
+    .blue-timeline-template .timeline-skills .skill-inline {
+      margin: 0.4mm 0 0.6mm;
+    }
+    .blue-timeline-template .tag-row span {
+      padding: 0.5mm 1.5mm;
+      background: #eef4ff;
+      background-color: #eef4ff;
+      color: var(--theme-color);
+      border-radius: 999px;
+      font-size: 0.92em;
+      line-height: 1.25;
+      font-weight: 500;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    @media print {
+      .blue-timeline-template .timeline-section,
+      .blue-timeline-template .timeline-item,
+      .blue-timeline-template .rich-text-body li,
+      .blue-timeline-template .tag-row {
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+      }
+      .blue-timeline-template .timeline-section-title,
+      .blue-timeline-template .timeline-item-head {
+        break-after: auto !important;
+        page-break-after: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+{% set basics = resume.basics or {} %}
+{% import 'resume/partials/icons.html' as icons %}
+{% macro header_icon(name) -%}
+  {% set color = config.header_icon_color or config.icon_color or '#ffffff' %}
+  {{ icons.resume_icon(name, 'timeline-meta-icon', color)|safe }}
+{%- endmacro %}
+{% macro node_icon(key) -%}
+  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" aria-hidden="true">
+    {% if key == 'skills' %}
+      <path d="m8 9-4 3 4 3"/><path d="m16 9 4 3-4 3"/><path d="m14 6-4 12"/>
+    {% elif key == 'work' %}
+      <rect x="4" y="7" width="16" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M4 13h16"/>
+    {% elif key == 'projects' %}
+      <path d="M6 3h12v18H6z"/><path d="M9 7h6"/><path d="M9 11h6"/><path d="M9 15h3"/>
+    {% elif key == 'education' %}
+      <path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/>
+    {% elif key == 'awards' %}
+      <circle cx="12" cy="8" r="5"/><path d="m8.5 12.5-2 8 5.5-3 5.5 3-2-8"/>
+    {% else %}
+      <path d="M4 4h16v16H4z"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/>
+    {% endif %}
+  </svg>
+{%- endmacro %}
+{% macro date_range(item) -%}
+  {% if item.start_date or item.end_date %}
+    {% if item.start_date %}{{ item.start_date }}{% endif %}{% if item.start_date and item.end_date %} ~ {% endif %}{% if item.end_date %}{{ item.end_date }}{% endif %}
+  {% endif %}
+{%- endmacro %}
+{% macro render_timeline_section(section) -%}
+  {% set key = section.key %}
+  {% set data = section.data %}
+  {% if key != 'basics' and data %}
+    <section class="timeline-section timeline-{{ key }}">
+      <span class="timeline-node">{{ node_icon(key)|safe }}</span>
+      <h2 class="timeline-section-title">{{ section.title }}</h2>
+      {% if key == 'summary' %}
+        <div class="rich-text-body">{{ data.content|rich_text|safe }}</div>
+      {% elif key == 'education' %}
+        {% for item in data %}
+          <div class="timeline-item">
+            <div class="timeline-item-head">
+              <strong class="timeline-primary">{{ item.school }}</strong>
+              <span class="timeline-date">{{ date_range(item) }}</span>
+            </div>
+            {% if item.major or item.degree %}
+              <div class="timeline-sub">{% if item.major %}{{ item.major }}{% endif %}{% if item.major and item.degree %}  {% endif %}{% if item.degree %}{{ item.degree }}{% endif %}</div>
+            {% endif %}
+            {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key == 'skills' %}
+        {% set skill_options = resume.layout.skills_options if resume.layout and resume.layout.skills_options else {} %}
+        {% set show_keywords = skill_options.get('show_keywords') is not sameas false %}
+        {% set description_inline = skill_options.get('description_inline') is sameas true %}
+        {% for item in data %}
+          {% set has_name = item.name and item.name != section.title %}
+          {% set description_text = item.description|inline_text %}
+          <div class="timeline-item">
+            {% if description_inline and show_keywords and item.keywords %}
+              <div class="tag-row">{% for tag in item.keywords|split_tags %}<span>{{ tag }}</span>{% endfor %}</div>
+            {% endif %}
+            {% if description_inline and description_text %}
+              <div class="skill-inline">{% if has_name %}<strong class="timeline-primary">{{ item.name }}{{ resume._labels.colon }}</strong>{% endif %}{{ description_text }}</div>
+            {% else %}
+              {% if has_name %}<div class="timeline-item-head"><strong>{{ item.name }}</strong></div>{% endif %}
+            {% endif %}
+            {% if show_keywords and item.keywords and not description_inline %}
+              <div class="tag-row">{% for tag in item.keywords|split_tags %}<span>{{ tag }}</span>{% endfor %}</div>
+            {% endif %}
+            {% if item.description and not description_inline %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key == 'work' %}
+        {% for item in data %}
+          <div class="timeline-item">
+            <div class="timeline-item-head">
+              <strong class="timeline-primary">
+                {% if item.company %}{{ item.company }}{% endif %}
+                {% if item.company and item.position %} · {% endif %}
+                {% if item.position %}{{ item.position }}{% endif %}
+              </strong>
+              <span class="timeline-date">{{ date_range(item) }}</span>
+            </div>
+            {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+            {% if item.highlights %}<div class="rich-text-body">{{ item.highlights|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key == 'projects' %}
+        {% for item in data %}
+          <div class="timeline-item">
+            <div class="timeline-item-head">
+              <strong class="timeline-primary">{% if item.name %}{{ item.name }}{% endif %}{% if item.name and item.role %} · {% endif %}{% if item.role %}{{ item.role }}{% endif %}</strong>
+              <span class="timeline-date">{{ date_range(item) }}</span>
+            </div>
+            {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+            {% if item.tech_stack %}<div class="timeline-tech">{% if section.field_labels.tech_stack %}{{ section.field_labels.tech_stack }}{{ resume._labels.colon }}{% endif %}{% if item.tech_stack is string %}{{ item.tech_stack }}{% else %}{{ item.tech_stack|join(resume._labels.list_separator) }}{% endif %}</div>{% endif %}
+            {% if item.highlights %}<div class="rich-text-body">{{ item.highlights|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key == 'awards' %}
+        {% for item in data %}
+          <div class="timeline-item">
+            <div class="timeline-item-head"><strong class="timeline-primary">{{ item.name }}</strong>{% if item.date %}<span class="timeline-date">{{ item.date }}</span>{% endif %}</div>
+            {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key.startswith('custom_') %}
+        {% for item in data.get('items', []) %}
+          {% if not data.get('preset_type') and (item.title or item.content) %}
+            <div class="timeline-item">
+              {% if item.title %}<div class="timeline-item-head"><strong class="timeline-primary">{{ item.title }}</strong></div>{% endif %}
+              {% if item.content %}<div class="rich-text-body">{{ item.content|rich_text|safe }}</div>{% endif %}
+            </div>
+          {% else %}
+            {% set title = item.name or item.company or item.organization or item.title or item.publisher or item.platform %}
+            {% set meta = [] %}
+            {% for meta_key in ['issuer', 'level', 'score', 'award', 'role', 'position', 'institution', 'publisher', 'platform', 'date', 'start_date', 'end_date', 'credential_id', 'url'] %}
+              {% if item.get(meta_key) %}
+                {% set _ = meta.append(item.get(meta_key)) %}
+              {% endif %}
+            {% endfor %}
+            {% if title or meta or item.description or item.highlights or item.tech_stack %}
+              <div class="timeline-item">
+                {% if title or meta %}
+                  <div class="timeline-item-head">
+                    <strong class="timeline-primary">{{ title }}</strong>
+                    {% if meta %}<span class="timeline-date">{{ meta|join(' / ') }}</span>{% endif %}
+                  </div>
+                {% endif %}
+                {% if item.tech_stack %}
+                  <div class="timeline-tech">{% if section.field_labels.tech_stack %}{{ section.field_labels.tech_stack }}{{ resume._labels.colon }}{% endif %}{% if item.tech_stack is string %}{{ item.tech_stack }}{% else %}{{ item.tech_stack|join(resume._labels.list_separator) }}{% endif %}</div>
+                {% endif %}
+                {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+                {% if item.highlights %}<div class="rich-text-body">{{ item.highlights|rich_text|safe }}</div>{% endif %}
+              </div>
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </section>
+  {% endif %}
+{%- endmacro %}
+  <main class="resume-page blue-timeline-template">
+    {% set avatar_position = config.avatar_position if config.avatar_position in ['left', 'center', 'right'] else 'right' %}
+    <header class="blue-timeline-hero resume-avatar-{{ avatar_position }}">
+      <h1 class="blue-timeline-name">{{ basics.name or resume._labels.unnamed }}{% if basics.title %} - {{ basics.title }}{% endif %}</h1>
+      {% for row in [1, 2, 3, 4] %}
+        {% set ns = namespace(has=false) %}
+        {% for key, cfg in (basics.field_config or {}).items() %}
+          {% if (cfg.row or 1)|int == row and basics.get(key) %}
+            {% set ns.has = true %}
+          {% endif %}
+        {% endfor %}
+        {% for field in basics.custom_fields or [] %}
+          {% if (field.row or 1)|int == row and field.value %}
+            {% set ns.has = true %}
+          {% endif %}
+        {% endfor %}
+        {% if ns.has %}
+          <div class="blue-timeline-meta">
+            {% for key, cfg in (basics.field_config or {}).items()|sort(attribute='1.order') %}
+              {% if (cfg.row or 1)|int == row and basics.get(key) %}
+                <span>{{ header_icon(cfg.icon)|safe }}{{ basics.get(key) }}</span>
+              {% endif %}
+            {% endfor %}
+            {% for field in basics.custom_fields or [] %}
+              {% if (field.row or 1)|int == row and field.value %}
+                <span>{{ header_icon(field.icon)|safe }}{{ field.value }}</span>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endfor %}
+      {% if config.show_avatar and basics.avatar %}
+        <img class="blue-timeline-avatar" src="{{ basics.avatar }}" alt="{{ resume._labels.avatar_alt }}">
+      {% endif %}
+    </header>
+    <div class="blue-timeline-body">
+      {% for section in resume._sections %}
+        {{ render_timeline_section(section) }}
+      {% endfor %}
+    </div>
+  </main>
+</body>
+</html>

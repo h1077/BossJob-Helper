@@ -1,0 +1,149 @@
+{% macro render_section(section, resume) %}
+  {% set key = section.key %}
+  {% set data = section.data %}
+  {% if key != 'basics' and data %}
+    <section class="section section-{{ key }}">
+      <h2 class="section-title">{{ section.title }}</h2>
+      {% if key == 'summary' %}
+        <div class="rich-text-body">{{ data.content|rich_text|safe }}</div>
+      {% elif key == 'education' %}
+        {% for item in data %}
+          <div class="experience-item">
+            <div class="item-head">
+              <strong>
+                {{ item.school }}
+                {% if item.major or item.degree %}
+                  <span class="inline-meta">
+                    {% if item.major %}{{ item.major }}{% endif %}
+                    {% if item.major and item.degree %} · {% endif %}
+                    {% if item.degree %}{{ item.degree }}{% endif %}
+                  </span>
+                {% endif %}
+              </strong>
+              {% if item.start_date or item.end_date %}
+                <span>
+                  {% if item.start_date %}{{ item.start_date }}{% endif %}
+                  {% if item.start_date and item.end_date %} - {% endif %}
+                  {% if item.end_date %}{{ item.end_date }}{% endif %}
+                </span>
+              {% endif %}
+            </div>
+            {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key == 'skills' %}
+        {% set skill_options = resume.layout.skills_options if resume.layout and resume.layout.skills_options else {} %}
+        {% set show_keywords = skill_options.get('show_keywords') is not sameas false %}
+        {% set description_inline = skill_options.get('description_inline') is sameas true %}
+        {% for item in data %}
+          {% set has_name = item.name and item.name != section.title %}
+          {% set description_text = item.description|inline_text %}
+          <div class="experience-item">
+            {% if description_inline and show_keywords and item.keywords %}
+              <div class="tag-row">
+                {% for tag in item.keywords|split_tags %}<span>{{ tag }}</span>{% endfor %}
+              </div>
+            {% endif %}
+            {% if description_inline and description_text %}
+              <div class="skill-inline">{% if has_name %}<strong>{{ item.name }}{{ resume._labels.colon }}</strong>{% endif %}{{ description_text }}</div>
+            {% else %}
+              {% if has_name %}<div class="item-head"><strong>{{ item.name }}</strong></div>{% endif %}
+            {% endif %}
+            {% if show_keywords and item.keywords and not description_inline %}
+              <div class="tag-row">
+                {% for tag in item.keywords|split_tags %}<span>{{ tag }}</span>{% endfor %}
+              </div>
+            {% endif %}
+            {% if item.description and not description_inline %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key == 'work' %}
+        {% for item in data %}
+          <div class="experience-item">
+            <div class="item-head">
+              <strong>
+                {% if item.company %}{{ item.company }}{% endif %}
+                {% if item.company and item.position %} · {% endif %}
+                {% if item.position %}{{ item.position }}{% endif %}
+              </strong>
+              {% if item.start_date or item.end_date %}
+                <span>
+                  {% if item.start_date %}{{ item.start_date }}{% endif %}
+                  {% if item.start_date and item.end_date %} - {% endif %}
+                  {% if item.end_date %}{{ item.end_date }}{% endif %}
+                </span>
+              {% endif %}
+            </div>
+            {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+            {% if item.highlights %}<div class="rich-text-body">{{ item.highlights|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key == 'projects' %}
+        {% for item in data %}
+          <div class="experience-item">
+            <div class="item-head">
+              <strong>
+                {% if item.name %}{{ item.name }}{% endif %}
+                {% if item.name and item.role %} · {% endif %}
+                {% if item.role %}{{ item.role }}{% endif %}
+              </strong>
+              {% if item.start_date or item.end_date %}
+                <span>
+                  {% if item.start_date %}{{ item.start_date }}{% endif %}
+                  {% if item.start_date and item.end_date %} - {% endif %}
+                  {% if item.end_date %}{{ item.end_date }}{% endif %}
+                </span>
+              {% endif %}
+            </div>
+            {% if item.tech_stack %}
+              <div class="item-sub">
+                {% if section.field_labels.tech_stack %}{{ section.field_labels.tech_stack }}{{ resume._labels.colon }}{% endif %}{% if item.tech_stack is string %}{{ item.tech_stack }}{% else %}{{ item.tech_stack|join(' / ') }}{% endif %}
+              </div>
+            {% endif %}
+            {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+            {% if item.highlights %}<div class="rich-text-body">{{ item.highlights|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key == 'awards' %}
+        {% for item in data %}
+          <div class="experience-item">
+            <div class="item-head"><strong>{{ item.name }}</strong>{% if item.date %}<span>{{ item.date }}</span>{% endif %}</div>
+            {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% elif key.startswith('custom_') %}
+        {% for item in data.get('items', []) %}
+          {% if not data.get('preset_type') and (item.title or item.content) %}
+            <div class="experience-item">
+              {% if item.title %}<div class="item-head"><strong>{{ item.title }}</strong></div>{% endif %}
+              {% if item.content %}<div class="rich-text-body">{{ item.content|rich_text|safe }}</div>{% endif %}
+            </div>
+          {% else %}
+            {% set title = item.name or item.company or item.organization or item.title or item.publisher or item.platform %}
+            {% set meta = [] %}
+            {% for meta_key in ['issuer', 'level', 'score', 'award', 'role', 'position', 'institution', 'publisher', 'platform', 'date', 'start_date', 'end_date', 'credential_id', 'url'] %}
+              {% if item.get(meta_key) %}
+                {% set _ = meta.append(item.get(meta_key)) %}
+              {% endif %}
+            {% endfor %}
+            {% if title or meta or item.description or item.highlights or item.tech_stack %}
+              <div class="experience-item">
+                {% if title or meta %}
+                  <div class="item-head">
+                    <strong>{{ title }}</strong>
+                    {% if meta %}<span>{{ meta|join(' / ') }}</span>{% endif %}
+                  </div>
+                {% endif %}
+                {% if item.tech_stack %}
+                  <div class="item-sub">{% if section.field_labels.tech_stack %}{{ section.field_labels.tech_stack }}{{ resume._labels.colon }}{% endif %}{% if item.tech_stack is string %}{{ item.tech_stack }}{% else %}{{ item.tech_stack|join(' / ') }}{% endif %}</div>
+                {% endif %}
+                {% if item.description %}<div class="rich-text-body">{{ item.description|rich_text|safe }}</div>{% endif %}
+                {% if item.highlights %}<div class="rich-text-body">{{ item.highlights|rich_text|safe }}</div>{% endif %}
+              </div>
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </section>
+  {% endif %}
+{% endmacro %}

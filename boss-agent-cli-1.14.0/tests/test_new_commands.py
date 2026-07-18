@@ -1,0 +1,1320 @@
+"""补齐缺失的命令测试：chatmsg / mark / exchange / detail / me / show / history / interviews / login / logout"""
+import json
+from unittest.mock import patch, MagicMock
+
+from click.testing import CliRunner
+from boss_agent_cli.main import cli
+
+
+def _ctx_mock(mock_cls):
+	instance = mock_cls.return_value
+	instance.__enter__ = lambda self: self
+	instance.__exit__ = lambda self, *a: None
+	instance.unwrap_data.side_effect = lambda response: response.get("zpData") if "zpData" in response else response.get("data")
+	instance.is_success.side_effect = lambda response: response.get("code", 0) in (0, 200)
+	return instance
+
+
+def _friend_list_response(items):
+	return {"zpData": {"result": items, "friendList": items}}
+
+
+def _make_friend(name="张HR", sid="sec_001", uid=12345):
+	return {
+		"name": name, "securityId": sid, "uid": uid,
+		"title": "HR", "brandName": "TestCo",
+		"friendSource": 0, "encryptJobId": "job_001",
+		"lastMsg": "你好", "lastTS": 1700000000000,
+		"unreadMsgCount": 0, "relationType": 1,
+		"lastMessageInfo": {"status": 2},
+	}
+
+
+# ── chatmsg ──────────────────────────────────────────────────────────
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_success(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.chat_history.return_value = {
+		"zpData": {
+			"messages": [
+				{"from": {"uid": 12345, "name": "张HR"}, "type": 1, "text": "你好", "time": 1700000000000},
+				{"from": {"uid": 99, "name": "我"}, "type": 1, "text": "谢谢", "time": 1700000001000},
+			],
+		},
+	}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert len(parsed["data"]) == 2
+	assert parsed["data"][0]["from"] == "张HR"
+	assert parsed["data"][1]["from"] == "我"
+	assert parsed["data"][0]["text"] == "你好"
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_finds_contact_on_second_page(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = [
+		_friend_list_response([_make_friend(sid="sec_other", uid=999)]),
+		_friend_list_response([_make_friend()]),
+	]
+	mock_client.chat_history.return_value = {
+		"zpData": {
+			"messages": [
+				{"from": {"uid": 12345, "name": "张HR"}, "type": 1, "text": "第二页找到你了", "time": 1700000000000},
+			],
+		},
+	}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"][0]["from"] == "张HR"
+	assert parsed["data"][0]["text"] == "第二页找到你了"
+	assert mock_client.friend_list.call_args_list[0].kwargs == {"page": 1}
+	assert mock_client.friend_list.call_args_list[1].kwargs == {"page": 2}
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_not_found(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([])
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_nonexistent"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "JOB_NOT_FOUND"
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_not_found_after_second_page_keeps_job_not_found(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = [
+		_friend_list_response([_make_friend(sid="sec_other", uid=999)]),
+		{"zpData": {"result": [], "friendList": [], "hasMore": False}},
+	]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_nonexistent"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "JOB_NOT_FOUND"
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_supports_data_envelope(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = {"code": 200, "data": {"result": [_make_friend()]}}
+	mock_client.chat_history.return_value = {
+		"code": 200,
+		"data": {
+			"messages": [
+				{"from": {"uid": 12345, "name": "张HR"}, "type": 1, "text": "智联你好", "time": 1700000000000},
+			],
+		},
+	}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"][0]["from"] == "张HR"
+	assert parsed["data"][0]["text"] == "智联你好"
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_zhilian_hints_use_platform_specific_commands(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = {"code": 200, "data": {"result": [_make_friend()]}}
+	mock_client.chat_history.return_value = {
+		"code": 200,
+		"data": {
+			"messages": [
+				{"from": {"uid": 12345, "name": "张HR"}, "type": 1, "text": "智联你好", "time": 1700000000000},
+			],
+		},
+	}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "chatmsg", "sec_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "boss --platform zhilian chat — 返回沟通列表"
+	assert parsed["hints"]["next_actions"][1] == "boss --platform zhilian detail sec_001 — 查看职位详情"
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_reports_friend_list_error(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = {"code": 37, "message": "stoken expired"}
+	mock_client.is_success.side_effect = None
+	mock_client.is_success.return_value = False
+	mock_client.parse_error.return_value = ("TOKEN_REFRESH_FAILED", "stoken expired")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "TOKEN_REFRESH_FAILED"
+	assert parsed["error"]["message"] == "stoken expired"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "boss login"
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_reports_chat_history_error(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.chat_history.return_value = {"code": 9, "message": "too fast"}
+	mock_client.is_success.side_effect = lambda response: response.get("code", 0) in (0, 200)
+	mock_client.parse_error.return_value = ("RATE_LIMITED", "too fast")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "RATE_LIMITED"
+	assert parsed["error"]["message"] == "too fast"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "等待后重试"
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_reports_not_supported_when_friend_list_missing(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = NotImplementedError("friend_list is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "friend_list is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+@patch("boss_agent_cli.commands.chatmsg.get_platform_instance")
+@patch("boss_agent_cli.commands.chatmsg.AuthManager")
+def test_chatmsg_reports_not_supported_when_chat_history_missing(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.chat_history.side_effect = NotImplementedError("chat_history is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["chatmsg", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "chat_history is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+# ── mark ─────────────────────────────────────────────────────────────
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_add_label(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.friend_label.return_value = {"code": 0, "zpData": {}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_001", "--label", "沟通中"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert "沟通中" in parsed["data"]["message"]
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_finds_contact_on_second_page(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = [
+		_friend_list_response([_make_friend(sid="sec_other", uid=999)]),
+		_friend_list_response([_make_friend()]),
+	]
+	mock_client.friend_label.return_value = {"code": 0, "zpData": {}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_001", "--label", "沟通中"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"]["name"] == "张HR"
+	assert mock_client.friend_list.call_args_list[0].kwargs == {"page": 1}
+	assert mock_client.friend_list.call_args_list[1].kwargs == {"page": 2}
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_remove_label(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.friend_label.return_value = {"code": 0, "zpData": {}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_001", "--label", "不合适", "--remove"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["data"]["action"] == "移除"
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_zhilian_hints_use_platform_specific_commands(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = {"code": 200, "data": {"result": [_make_friend()]}}
+	mock_client.friend_label.return_value = {"code": 200, "data": {}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "mark", "sec_001", "--label", "沟通中"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "boss --platform zhilian chat — 返回沟通列表"
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_reports_error_when_platform_rejects(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.friend_label.return_value = {"code": 36, "message": "account risk"}
+	mock_client.is_success.return_value = False
+	mock_client.parse_error.return_value = ("ACCOUNT_RISK", "account risk")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_001", "--label", "沟通中"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is False
+	assert parsed["error"]["code"] == "ACCOUNT_RISK"
+	assert parsed["error"]["message"] == "account risk"
+	assert parsed["error"]["recoverable"] is False
+	assert parsed["error"]["recovery_action"] == "停止自动化访问，回到平台官网手动处理，必要时联系客服"
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_reports_friend_list_error(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = {"code": 37, "message": "stoken expired"}
+	mock_client.is_success.side_effect = None
+	mock_client.is_success.return_value = False
+	mock_client.parse_error.return_value = ("TOKEN_REFRESH_FAILED", "stoken expired")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_001", "--label", "沟通中"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "TOKEN_REFRESH_FAILED"
+	assert parsed["error"]["message"] == "stoken expired"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "boss login"
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_not_found(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([])
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_none", "--label", "收藏"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "JOB_NOT_FOUND"
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_not_found_after_second_page_keeps_job_not_found(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = [
+		_friend_list_response([_make_friend(sid="sec_other", uid=999)]),
+		{"zpData": {"result": [], "friendList": [], "hasMore": False}},
+	]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_none", "--label", "收藏"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "JOB_NOT_FOUND"
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_reports_not_supported_when_friend_list_missing(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = NotImplementedError("friend_list is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_001", "--label", "沟通中"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "friend_list is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+@patch("boss_agent_cli.commands.mark.get_platform_instance")
+@patch("boss_agent_cli.commands.mark.AuthManager")
+def test_mark_reports_not_supported_when_friend_label_missing(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.friend_label.side_effect = NotImplementedError("friend_label is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["mark", "sec_001", "--label", "沟通中"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "friend_label is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+# ── exchange ─────────────────────────────────────────────────────────
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_phone(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.exchange_contact.return_value = {"code": 0, "zpData": {}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["exchange", "sec_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert "手机号" in parsed["data"]["message"]
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_finds_contact_on_second_page(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = [
+		_friend_list_response([_make_friend(sid="sec_other", uid=999)]),
+		_friend_list_response([_make_friend()]),
+	]
+	mock_client.exchange_contact.return_value = {"code": 0, "zpData": {}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["exchange", "sec_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"]["name"] == "张HR"
+	assert mock_client.friend_list.call_args_list[0].kwargs == {"page": 1}
+	assert mock_client.friend_list.call_args_list[1].kwargs == {"page": 2}
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_not_found_after_second_page_keeps_job_not_found(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = [
+		_friend_list_response([_make_friend(sid="sec_other", uid=999)]),
+		{"zpData": {"result": [], "friendList": [], "hasMore": False}},
+	]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["exchange", "sec_none"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "JOB_NOT_FOUND"
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_wechat(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.exchange_contact.return_value = {"code": 0, "zpData": {}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["exchange", "sec_001", "--type", "wechat"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert "微信" in parsed["data"]["message"]
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_zhilian_hints_use_platform_specific_commands(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = {"code": 200, "data": {"result": [_make_friend()]}}
+	mock_client.exchange_contact.return_value = {"code": 200, "data": {}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "exchange", "sec_001", "--type", "wechat"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "boss --platform zhilian chat — 返回沟通列表"
+	assert parsed["hints"]["next_actions"][1] == "boss --platform zhilian chatmsg sec_001 — 查看聊天记录"
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_reports_error_when_platform_rejects(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.exchange_contact.return_value = {"code": 9, "message": "too fast"}
+	mock_client.is_success.return_value = False
+	mock_client.parse_error.return_value = ("RATE_LIMITED", "too fast")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["exchange", "sec_001", "--type", "wechat"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is False
+	assert parsed["error"]["code"] == "RATE_LIMITED"
+	assert parsed["error"]["message"] == "too fast"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "等待后重试"
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_reports_friend_list_error(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = {"code": 36, "message": "account risk"}
+	mock_client.is_success.side_effect = None
+	mock_client.is_success.return_value = False
+	mock_client.parse_error.return_value = ("ACCOUNT_RISK", "account risk")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["exchange", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "ACCOUNT_RISK"
+	assert parsed["error"]["message"] == "account risk"
+	assert parsed["error"]["recoverable"] is False
+	assert parsed["error"]["recovery_action"] == "停止自动化访问，回到平台官网手动处理，必要时联系客服"
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_reports_not_supported_when_friend_list_missing(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.side_effect = NotImplementedError("friend_list is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["exchange", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "friend_list is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+@patch("boss_agent_cli.commands.exchange.get_platform_instance")
+@patch("boss_agent_cli.commands.exchange.AuthManager")
+def test_exchange_reports_not_supported_when_exchange_contact_missing(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = _friend_list_response([_make_friend()])
+	mock_client.exchange_contact.side_effect = NotImplementedError("exchange_contact is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["exchange", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "exchange_contact is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+# ── detail ───────────────────────────────────────────────────────────
+
+
+@patch("boss_agent_cli.commands.detail.CacheStore")
+@patch("boss_agent_cli.commands.detail.get_platform_instance")
+@patch("boss_agent_cli.commands.detail.AuthManager")
+def test_detail_with_job_id(mock_auth_cls, mock_client_cls, mock_cache_cls):
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_detail.return_value = {
+		"code": 0,
+		"zpData": {
+			"jobInfo": {
+				"jobName": "Go 开发",
+				"salaryDesc": "30K",
+				"experienceName": "3-5年",
+				"degreeName": "本科",
+				"locationName": "北京",
+				"postDescription": "职位描述",
+				"showSkills": ["Golang", "K8s"],
+				"jobLabels": ["Golang", "K8s"],
+				"encryptId": "enc_001",
+			},
+			"bossInfo": {
+				"name": "张总", "title": "CTO",
+				"activeTimeDesc": "刚刚活跃",
+			},
+			"brandComInfo": {
+				"brandName": "TestCo",
+				"industryName": "互联网",
+				"scaleName": "100-499",
+				"stageName": "A轮",
+				"labels": ["五险一金", "双休"],
+			},
+		},
+	}
+	mock_client.unwrap_data.return_value = mock_client.job_detail.return_value["zpData"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["detail", "sec_001", "--job-id", "enc_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"]["title"] == "Go 开发"
+	assert "Golang" in parsed["data"]["skills"]
+
+
+@patch("boss_agent_cli.commands.detail.CacheStore")
+@patch("boss_agent_cli.commands.detail.get_platform_instance")
+@patch("boss_agent_cli.commands.detail.AuthManager")
+def test_detail_zhilian_hints_use_platform_specific_commands(mock_auth_cls, mock_client_cls, mock_cache_cls):
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_detail.return_value = {
+		"code": 200,
+		"data": {
+			"jobInfo": {
+				"jobName": "Go 开发",
+				"salaryDesc": "30K",
+				"experienceName": "3-5年",
+				"degreeName": "本科",
+				"jobLabels": ["Golang"],
+			},
+			"bossInfo": {"name": "张总", "title": "CTO"},
+			"brandComInfo": {"brandName": "智联测试公司"},
+		},
+	}
+	mock_client.unwrap_data.return_value = mock_client.job_detail.return_value["data"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "detail", "sec_001", "--job-id", "enc_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "如需投递或沟通，请回到 BOSS 直聘官方页面由用户手动完成"
+	assert parsed["hints"]["next_actions"][1] == "boss search <query>"
+
+
+@patch("boss_agent_cli.commands.detail.CacheStore")
+@patch("boss_agent_cli.commands.detail.get_platform_instance")
+@patch("boss_agent_cli.commands.detail.AuthManager")
+def test_detail_reports_platform_error(mock_auth_cls, mock_client_cls, mock_cache_cls):
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_detail.return_value = {"code": 37, "message": "stoken expired"}
+	mock_client.parse_error.return_value = ("TOKEN_REFRESH_FAILED", "stoken expired")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["detail", "sec_001", "--job-id", "enc_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "TOKEN_REFRESH_FAILED"
+	assert parsed["error"]["message"] == "stoken expired"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "boss login"
+
+
+@patch("boss_agent_cli.commands.detail.CacheStore")
+@patch("boss_agent_cli.commands.detail.get_platform_instance")
+@patch("boss_agent_cli.commands.detail.AuthManager")
+def test_detail_reports_not_supported_when_browser_fallback_missing(mock_auth_cls, mock_client_cls, mock_cache_cls):
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_cache.get_job_id.return_value = ""
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_card.side_effect = NotImplementedError("job_card is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["detail", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "job_card is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+@patch("boss_agent_cli.commands.detail.CacheStore")
+@patch("boss_agent_cli.commands.detail.get_platform_instance")
+@patch("boss_agent_cli.commands.detail.AuthManager")
+def test_detail_preserves_httpx_platform_error_when_browser_fallback_not_supported(mock_auth_cls, mock_client_cls, mock_cache_cls):
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_cache.get_job_id.return_value = "enc_cached_001"
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_detail.return_value = {"code": 9, "message": "too fast"}
+	mock_client.parse_error.return_value = ("RATE_LIMITED", "too fast")
+	mock_client.job_card.side_effect = NotImplementedError("job_card is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["detail", "sec_001"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "RATE_LIMITED"
+	assert parsed["error"]["message"] == "too fast"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "等待后重试"
+
+
+@patch("boss_agent_cli.commands.show.CacheStore")
+@patch("boss_agent_cli.commands.show.get_job_by_index")
+@patch("boss_agent_cli.commands.show.get_platform_instance")
+@patch("boss_agent_cli.commands.show.AuthManager")
+def test_show_zhilian_hints_use_platform_specific_commands(mock_auth_cls, mock_client_cls, mock_get_job_by_index, mock_cache_cls):
+	mock_get_job_by_index.return_value = {"security_id": "sec_001"}
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_card.return_value = {
+		"code": 200,
+		"data": {
+			"jobCard": {
+				"encryptJobId": "enc_001",
+				"jobName": "Go 开发",
+				"brandName": "智联测试公司",
+				"salaryDesc": "30K",
+				"cityName": "北京",
+				"experienceName": "3-5年",
+				"degreeName": "本科",
+			},
+		},
+	}
+	mock_client.unwrap_data.return_value = mock_client.job_card.return_value["data"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "show", "1"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "如需投递或沟通，请回到 BOSS 直聘官方页面由用户手动完成"
+	assert parsed["hints"]["next_actions"][1] == "boss search <query>"
+
+
+@patch("boss_agent_cli.commands.show.CacheStore")
+@patch("boss_agent_cli.commands.show.get_job_by_index")
+@patch("boss_agent_cli.commands.show.get_platform_instance")
+@patch("boss_agent_cli.commands.show.AuthManager")
+def test_show_reports_platform_error(mock_auth_cls, mock_client_cls, mock_get_job_by_index, mock_cache_cls):
+	mock_get_job_by_index.return_value = {"security_id": "sec_001"}
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_card.return_value = {"code": 9, "message": "too fast"}
+	mock_client.parse_error.return_value = ("RATE_LIMITED", "too fast")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["show", "1"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "RATE_LIMITED"
+	assert parsed["error"]["message"] == "too fast"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "等待后重试"
+
+
+@patch("boss_agent_cli.commands.show.CacheStore")
+@patch("boss_agent_cli.commands.show.get_job_by_index")
+@patch("boss_agent_cli.commands.show.get_platform_instance")
+@patch("boss_agent_cli.commands.show.AuthManager")
+def test_show_reports_not_supported_when_job_card_missing(mock_auth_cls, mock_client_cls, mock_get_job_by_index, mock_cache_cls):
+	mock_get_job_by_index.return_value = {"security_id": "sec_001"}
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_card.side_effect = NotImplementedError("job_card is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["show", "1"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "job_card is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+# ── me ───────────────────────────────────────────────────────────────
+
+
+@patch("boss_agent_cli.commands.me.get_platform_instance")
+@patch("boss_agent_cli.commands.me.AuthManager")
+def test_me_basic(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.user_info.return_value = {"code": 0, "zpData": {"name": "测试用户", "userId": 123}}
+	mock_client.resume_baseinfo.return_value = {"code": 0, "zpData": {"degree": "本科"}}
+	mock_client.resume_expect.return_value = {"code": 0, "zpData": {"city": "北京"}}
+	mock_client.deliver_list.return_value = {"code": 0, "zpData": {"list": []}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["me"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert "测试用户" in str(parsed["data"])
+
+
+@patch("boss_agent_cli.commands.me.get_platform_instance")
+@patch("boss_agent_cli.commands.me.AuthManager")
+def test_me_user_section_supports_data_envelope(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.user_info.return_value = {"code": 200, "data": {"name": "智联用户", "email": "z@demo.dev"}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["me", "--section", "user"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"]["user"]["name"] == "智联用户"
+
+
+@patch("boss_agent_cli.commands.me.get_platform_instance")
+@patch("boss_agent_cli.commands.me.AuthManager")
+def test_me_zhilian_hints_use_platform_specific_commands(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.user_info.return_value = {"code": 200, "data": {"name": "智联用户"}}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "me", "--section", "user"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "boss --platform zhilian search <关键词> --city <城市>"
+	assert parsed["hints"]["next_actions"][1] == "boss --platform zhilian recommend"
+
+
+@patch("boss_agent_cli.commands.me.get_platform_instance")
+@patch("boss_agent_cli.commands.me.AuthManager")
+def test_me_reports_user_info_error(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.user_info.return_value = {"code": 37, "message": "stoken expired"}
+	mock_client.parse_error.return_value = ("TOKEN_REFRESH_FAILED", "stoken expired")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["me", "--section", "user"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "TOKEN_REFRESH_FAILED"
+	assert parsed["error"]["message"] == "stoken expired"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "boss login"
+
+
+@patch("boss_agent_cli.commands.me.get_platform_instance")
+@patch("boss_agent_cli.commands.me.AuthManager")
+def test_me_resume_reports_not_supported(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.resume_baseinfo.side_effect = NotImplementedError("resume_baseinfo is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["me", "--section", "resume"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "resume_baseinfo is not supported"
+
+
+@patch("boss_agent_cli.commands.me.get_platform_instance")
+@patch("boss_agent_cli.commands.me.AuthManager")
+def test_me_expect_reports_not_supported(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.resume_expect.side_effect = NotImplementedError("resume_expect is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["me", "--section", "expect"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "resume_expect is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+@patch("boss_agent_cli.commands.me.get_platform_instance")
+@patch("boss_agent_cli.commands.me.AuthManager")
+def test_me_deliver_reports_not_supported(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.deliver_list.side_effect = NotImplementedError("deliver_list is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["me", "--section", "deliver"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "deliver_list is not supported"
+
+
+@patch("boss_agent_cli.commands.me.get_platform_instance")
+@patch("boss_agent_cli.commands.me.AuthManager")
+def test_me_default_sequence_stops_on_expect_not_supported(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.user_info.return_value = {"code": 0, "zpData": {"name": "测试用户"}}
+	mock_client.resume_baseinfo.return_value = {"code": 0, "zpData": {"degree": "本科"}}
+	mock_client.resume_expect.side_effect = NotImplementedError("resume_expect is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["me"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "resume_expect is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+	mock_client.user_info.assert_called_once_with()
+	mock_client.resume_baseinfo.assert_called_once_with()
+	mock_client.resume_expect.assert_called_once_with()
+	mock_client.deliver_list.assert_not_called()
+
+
+# ── history ──────────────────────────────────────────────────────────
+
+
+@patch("boss_agent_cli.commands.history.get_platform_instance")
+@patch("boss_agent_cli.commands.history.AuthManager")
+def test_history_success(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_history.return_value = {
+		"code": 0,
+		"zpData": {
+			"hasMore": False,
+			"jobList": [
+				{
+					"encryptJobId": "j1", "jobName": "测试岗位",
+					"brandName": "公司A", "salaryDesc": "20K",
+					"cityName": "北京", "jobExperience": "3-5年",
+					"jobDegree": "本科", "bossName": "HR",
+					"bossTitle": "招聘", "bossOnline": True,
+					"securityId": "sec_h1",
+				},
+			],
+		},
+	}
+	mock_client.unwrap_data.return_value = mock_client.job_history.return_value["zpData"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["history"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+
+
+@patch("boss_agent_cli.commands.history.get_platform_instance")
+@patch("boss_agent_cli.commands.history.AuthManager")
+def test_history_uses_client_context_manager(mock_auth_cls, mock_client_cls):
+	instance = mock_client_cls.return_value
+	instance.__enter__ = MagicMock(return_value=instance)
+	instance.__exit__ = MagicMock(return_value=None)
+	instance.job_history.return_value = {"code": 0, "zpData": {"hasMore": False, "jobList": []}}
+	instance.unwrap_data.return_value = instance.job_history.return_value["zpData"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["history"])
+	assert result.exit_code == 0
+	instance.__enter__.assert_called_once()
+	instance.__exit__.assert_called_once()
+
+
+@patch("boss_agent_cli.commands.history.get_platform_instance")
+@patch("boss_agent_cli.commands.history.AuthManager")
+def test_history_zhilian_hints_use_platform_specific_commands(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_history.return_value = {
+		"code": 200,
+		"data": {
+			"hasMore": True,
+			"jobList": [
+				{
+					"encryptJobId": "j1", "jobName": "测试岗位",
+					"brandName": "公司A", "salaryDesc": "20K",
+					"cityName": "北京", "jobExperience": "3-5年",
+					"jobDegree": "本科", "bossName": "HR",
+					"bossTitle": "招聘", "bossOnline": True,
+					"securityId": "sec_h1",
+				},
+			],
+		},
+	}
+	mock_client.unwrap_data.return_value = mock_client.job_history.return_value["data"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "history"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "使用 boss --platform zhilian detail <security_id> 查看职位详情"
+	assert parsed["hints"]["next_actions"][1] == "如需投递或沟通，请回到平台官网由用户手动完成"
+	assert parsed["hints"]["next_actions"][2] == "使用 boss --platform zhilian history --page 2 查看下一页"
+
+
+@patch("boss_agent_cli.commands.history.get_platform_instance")
+@patch("boss_agent_cli.commands.history.AuthManager")
+def test_history_reports_platform_error(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_history.return_value = {"code": 9, "message": "too fast"}
+	mock_client.parse_error.return_value = ("RATE_LIMITED", "too fast")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["history"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "RATE_LIMITED"
+	assert parsed["error"]["message"] == "too fast"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "等待后重试"
+
+
+@patch("boss_agent_cli.commands.history.get_platform_instance")
+@patch("boss_agent_cli.commands.history.AuthManager")
+def test_history_reports_not_supported_when_job_history_missing(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.job_history.side_effect = NotImplementedError("job_history is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["history"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "job_history is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+# ── interviews ───────────────────────────────────────────────────────
+
+
+@patch("boss_agent_cli.commands.interviews.get_platform_instance")
+@patch("boss_agent_cli.commands.interviews.AuthManager")
+def test_interviews_success(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.interview_data.return_value = {
+		"code": 0,
+		"zpData": {"interviewList": []},
+	}
+	mock_client.unwrap_data.return_value = mock_client.interview_data.return_value["zpData"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["interviews"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["hints"]["next_actions"][0] == "boss search <query>"
+
+
+@patch("boss_agent_cli.commands.interviews.get_platform_instance")
+@patch("boss_agent_cli.commands.interviews.AuthManager")
+def test_interviews_supports_zhilian_style_data(mock_auth_cls, mock_client_cls):
+	mock_auth_cls.return_value.check_status.return_value = {"cookies": {"zp_token": "x"}}
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.interview_data.return_value = {
+		"code": 200,
+		"data": {"interviewList": [{"jobName": "测试岗位"}]},
+	}
+	mock_client.unwrap_data.return_value = mock_client.interview_data.return_value["data"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["interviews"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["data"][0]["jobName"] == "测试岗位"
+	assert parsed["hints"]["next_actions"][0] == "boss search <query>"
+
+
+@patch("boss_agent_cli.commands.interviews.get_platform_instance")
+@patch("boss_agent_cli.commands.interviews.AuthManager")
+def test_interviews_reports_platform_error(mock_auth_cls, mock_client_cls):
+	mock_auth_cls.return_value.check_status.return_value = {"cookies": {"zp_token": "x"}}
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.interview_data.return_value = {"code": 36, "message": "account risk"}
+	mock_client.parse_error.return_value = ("ACCOUNT_RISK", "account risk")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["interviews"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "ACCOUNT_RISK"
+	assert parsed["error"]["message"] == "account risk"
+	assert parsed["error"]["recoverable"] is False
+	assert parsed["error"]["recovery_action"] == "停止自动化访问，回到平台官网手动处理，必要时联系客服"
+
+
+@patch("boss_agent_cli.commands.interviews.get_platform_instance")
+@patch("boss_agent_cli.commands.interviews.AuthManager")
+def test_interviews_reports_not_supported_when_interview_data_missing(mock_auth_cls, mock_client_cls):
+	mock_auth_cls.return_value.check_status.return_value = {"cookies": {"zp_token": "x"}}
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.interview_data.side_effect = NotImplementedError("interview_data is not supported")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["interviews"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["error"]["code"] == "NOT_SUPPORTED"
+	assert parsed["error"]["message"] == "interview_data is not supported"
+	assert parsed["error"]["recoverable"] is True
+	assert parsed["error"]["recovery_action"] == "切换平台或调整命令参数后重试"
+
+
+@patch("boss_agent_cli.commands.interviews.get_platform_instance")
+@patch("boss_agent_cli.commands.interviews.AuthManager")
+def test_interviews_stub_surfaces_capability_hint(mock_auth_cls, mock_client_cls):
+	"""占位实现（_stub）应在 hints 中如实声明 capability，
+
+	避免 Agent 把'功能未实现的空集合'误读为'真的没有面试邀请'。
+	"""
+	mock_auth_cls.return_value.check_status.return_value = {"cookies": {"zp_token": "x"}}
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.interview_data.return_value = {
+		"code": 200,
+		"data": {"items": [], "total": 0},
+		"_stub": True,
+	}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "interviews"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"] == []
+	# 核心契约：占位状态如实浮现给 Agent
+	assert parsed["hints"]["capability"] == "stub"
+	assert "占位" in parsed["hints"]["note"]
+	# 既有 next_actions 不被破坏
+	assert parsed["hints"]["next_actions"]
+
+
+@patch("boss_agent_cli.commands.interviews.get_platform_instance")
+@patch("boss_agent_cli.commands.interviews.AuthManager")
+def test_interviews_real_data_has_no_stub_hint(mock_auth_cls, mock_client_cls):
+	"""真实数据（无 _stub）不应出现 capability/note，避免误标正常结果为占位。"""
+	mock_auth_cls.return_value.check_status.return_value = {"cookies": {"zp_token": "x"}}
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.interview_data.return_value = {
+		"code": 200,
+		"data": {"interviewList": [{"jobName": "测试岗位"}]},
+	}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "interviews"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert "capability" not in parsed["hints"]
+	assert "note" not in parsed["hints"]
+
+
+@patch("boss_agent_cli.commands.chat_summary.get_platform_instance")
+@patch("boss_agent_cli.commands.chat_summary.AuthManager")
+def test_chat_summary_zhilian_hints_use_platform_specific_commands(mock_auth_cls, mock_client_cls):
+	mock_client = _ctx_mock(mock_client_cls)
+	mock_client.friend_list.return_value = {
+		"code": 200,
+		"data": {"result": [_make_friend("张HR", "sec_001", 12345)]},
+	}
+	mock_client.chat_history.return_value = {
+		"code": 200,
+		"data": {
+			"messages": [
+				{"from": {"uid": 12345, "name": "张HR"}, "text": "您好", "type": 1, "time": 1700000000000},
+				{"from": {"uid": 99999, "name": "我"}, "text": "收到", "type": 1, "time": 1700000001000},
+			],
+		},
+	}
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--json", "--platform", "zhilian", "chat-summary", "sec_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "boss --platform zhilian chat"
+	assert parsed["hints"]["next_actions"][1] == "boss --platform zhilian chatmsg sec_001"
+
+
+@patch("boss_agent_cli.commands.detail.CacheStore")
+@patch("boss_agent_cli.commands.detail.get_platform_instance")
+@patch("boss_agent_cli.commands.detail.AuthManager")
+def test_detail_uses_client_context_manager(mock_auth_cls, mock_client_cls, mock_cache_cls):
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	instance = mock_client_cls.return_value
+	instance.__enter__ = MagicMock(return_value=instance)
+	instance.__exit__ = MagicMock(return_value=None)
+	instance.job_detail.return_value = {
+		"code": 0,
+		"zpData": {
+			"jobInfo": {"jobName": "Go 开发", "salaryDesc": "30K", "experienceName": "3-5年", "degreeName": "本科"},
+			"bossInfo": {"name": "张总", "title": "CTO"},
+			"brandComInfo": {"brandName": "TestCo"},
+		},
+	}
+	instance.unwrap_data.return_value = instance.job_detail.return_value["zpData"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["detail", "sec_001", "--job-id", "enc_001"])
+	assert result.exit_code == 0
+	instance.__enter__.assert_called_once()
+	instance.__exit__.assert_called_once()
+
+
+@patch("boss_agent_cli.commands.detail.CacheStore")
+@patch("boss_agent_cli.commands.detail.get_platform_instance")
+@patch("boss_agent_cli.commands.detail.AuthManager")
+def test_detail_httpx_fallback_to_browser_on_auth_error(mock_auth_cls, mock_client_cls, mock_cache_cls):
+	"""httpx 快速通道因 AuthError 失败时，应降级到浏览器通道而非直接报错"""
+	from boss_agent_cli.api.client import AuthError
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_cache.get_job_id.return_value = ""
+	mock_client = _ctx_mock(mock_client_cls)
+	# httpx 通道抛 AuthError（stoken 过期刷新失败）
+	mock_client.job_detail.side_effect = AuthError("stoken refresh failed")
+	# 浏览器通道返回正常数据
+	mock_client.job_card.return_value = {
+		"zpData": {
+			"jobCard": {
+				"encryptJobId": "enc_001",
+				"jobName": "Go 开发",
+				"brandName": "TestCo",
+				"salaryDesc": "30K",
+				"cityName": "北京",
+				"experienceName": "3-5年",
+				"degreeName": "本科",
+				"postDescription": "JD 描述",
+				"bossName": "张总",
+				"bossTitle": "CTO",
+				"activeTimeDesc": "刚刚活跃",
+			}
+		}
+	}
+	def unwrap_data_side_effect(payload):
+		return payload.get("zpData")
+	mock_client.unwrap_data.side_effect = unwrap_data_side_effect
+	runner = CliRunner()
+	result = runner.invoke(cli, ["detail", "sec_001", "--job-id", "enc_001"])
+	assert result.exit_code == 0, f"exit_code={result.exit_code}, output={result.output}"
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"]["title"] == "Go 开发"
+	# 确认 httpx 被调用后又降级到了浏览器通道
+	mock_client.job_detail.assert_called_once()
+	mock_client.job_card.assert_called_once()
+
+
+@patch("boss_agent_cli.commands.detail.CacheStore")
+@patch("boss_agent_cli.commands.detail.get_platform_instance")
+@patch("boss_agent_cli.commands.detail.AuthManager")
+def test_detail_httpx_fallback_to_browser_on_none(mock_auth_cls, mock_client_cls, mock_cache_cls):
+	"""httpx 快速通道返回空 jobInfo 时，应降级到浏览器通道"""
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	mock_cache.get_job_id.return_value = ""
+	mock_client = _ctx_mock(mock_client_cls)
+	# httpx 返回无 jobInfo（解析后 result=None）
+	mock_client.job_detail.return_value = {"zpData": {"jobInfo": {}}}
+	# 浏览器通道返回正常数据
+	mock_client.job_card.return_value = {
+		"zpData": {
+			"jobCard": {
+				"encryptJobId": "enc_001",
+				"jobName": "Go 开发",
+				"brandName": "FallbackCo",
+				"salaryDesc": "25K",
+				"cityName": "深圳",
+				"experienceName": "1-3年",
+				"degreeName": "大专",
+				"postDescription": "降级 JD",
+				"bossName": "李总",
+				"bossTitle": "HR",
+				"activeTimeDesc": "在线",
+			}
+		}
+	}
+	def unwrap_data_side_effect(payload):
+		return payload.get("zpData")
+	mock_client.unwrap_data.side_effect = unwrap_data_side_effect
+	runner = CliRunner()
+	result = runner.invoke(cli, ["detail", "sec_001", "--job-id", "enc_001"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+	assert parsed["data"]["company"] == "FallbackCo"
+
+
+@patch("boss_agent_cli.commands.show.CacheStore")
+@patch("boss_agent_cli.commands.show.get_job_by_index")
+@patch("boss_agent_cli.commands.show.get_platform_instance")
+@patch("boss_agent_cli.commands.show.AuthManager")
+def test_show_uses_client_context_manager(mock_auth_cls, mock_client_cls, mock_get_job_by_index, mock_cache_cls):
+	mock_get_job_by_index.return_value = {"security_id": "sec_001"}
+	mock_cache = _ctx_mock(mock_cache_cls)
+	mock_cache.is_greeted.return_value = False
+	instance = mock_client_cls.return_value
+	instance.__enter__ = MagicMock(return_value=instance)
+	instance.__exit__ = MagicMock(return_value=None)
+	instance.job_card.return_value = {
+		"zpData": {
+			"jobCard": {
+				"encryptJobId": "enc_001",
+				"jobName": "Go 开发",
+				"brandName": "TestCo",
+				"salaryDesc": "30K",
+				"cityName": "北京",
+				"experienceName": "3-5年",
+				"degreeName": "本科",
+			},
+		},
+	}
+	instance.unwrap_data.return_value = instance.job_card.return_value["zpData"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["show", "1"])
+	assert result.exit_code == 0
+	instance.__enter__.assert_called_once()
+	instance.__exit__.assert_called_once()
+
+
+@patch("boss_agent_cli.commands.interviews.get_platform_instance")
+@patch("boss_agent_cli.commands.interviews.AuthManager")
+def test_interviews_uses_client_context_manager(mock_auth_cls, mock_client_cls):
+	mock_auth_cls.return_value.check_status.return_value = {"cookies": {"wt2": "ok"}}
+	instance = mock_client_cls.return_value
+	instance.__enter__ = MagicMock(return_value=instance)
+	instance.__exit__ = MagicMock(return_value=None)
+	instance.interview_data.return_value = {"code": 0, "zpData": {"interviewList": []}}
+	instance.unwrap_data.return_value = instance.interview_data.return_value["zpData"]
+	runner = CliRunner()
+	result = runner.invoke(cli, ["interviews"])
+	assert result.exit_code == 0
+	instance.__enter__.assert_called_once()
+	instance.__exit__.assert_called_once()
+
+
+# ── show ─────────────────────────────────────────────────────────────
+
+
+def test_show_no_cache(tmp_path):
+	"""没有缓存时 show 应返回错误"""
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--data-dir", str(tmp_path), "show", "1"])
+	assert result.exit_code == 1
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is False
+
+
+# ── login / logout ───────────────────────────────────────────────────
+
+
+@patch("boss_agent_cli.commands.login.AuthManager")
+def test_login_auth_required(mock_auth_cls):
+	"""login 命令基本调用（mock 不实际启动浏览器）"""
+	from boss_agent_cli.auth.manager import AuthRequired
+	mock_auth_cls.return_value.login.side_effect = AuthRequired("test")
+	runner = CliRunner()
+	result = runner.invoke(cli, ["login"])
+	# login 失败应返回错误
+	assert result.exit_code != 0
+
+
+@patch("boss_agent_cli.commands.logout.AuthManager")
+def test_logout_success(mock_auth_cls):
+	mock_auth_cls.return_value.logout.return_value = None
+	runner = CliRunner()
+	result = runner.invoke(cli, ["logout"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["ok"] is True
+
+
+@patch("boss_agent_cli.commands.logout.AuthManager")
+def test_logout_success_for_zhilian_has_platform_specific_next_action(mock_auth_cls):
+	mock_auth_cls.return_value.logout.return_value = None
+	runner = CliRunner()
+	result = runner.invoke(cli, ["--platform", "zhilian", "logout"])
+	assert result.exit_code == 0
+	parsed = json.loads(result.output)
+	assert parsed["hints"]["next_actions"][0] == "boss --platform zhilian login — 重新登录"
+
+
+# ── schema 包含新命令 ────────────────────────────────────────────────
+
+
+def test_schema_includes_new_commands_v2():
+	runner = CliRunner()
+	result = runner.invoke(cli, ["schema"])
+	parsed = json.loads(result.output)
+	commands = parsed["data"]["commands"]
+	assert "chatmsg" in commands
+	assert "mark" in commands
+	assert "exchange" in commands

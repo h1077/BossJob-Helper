@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.venv/
+node_modules/
+dist/
+__pycache__/
+.pycache/
+*.pyc
+storage/exports/*
+storage/uploads/*
+backend/storage/exports/*
+backend/storage/uploads/*
+backend/logs/*.log
+!backend/storage/exports/.gitkeep
+!backend/storage/uploads/.gitkeep
+.idea/
+.vscode/

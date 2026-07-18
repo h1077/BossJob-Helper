@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <div id="editor" contenteditable="true">
+    This is some text.
+  </div>
+  <button id="btn">Change Size</button>
+  <script>
+    let savedRange = null;
+    const editor = document.getElementById('editor');
+    
+    function saveSelection() {
+      const selection = window.getSelection()
+      if (!selection.rangeCount) return
+      const range = selection.getRangeAt(0)
+      if (editor.contains(range.commonAncestorContainer)) savedRange = range.cloneRange()
+    }
+    
+    editor.addEventListener('mouseup', saveSelection);
+    editor.addEventListener('keyup', saveSelection);
+    
+    document.getElementById('btn').addEventListener('mousedown', (e) => {
+      // simulate radix stealing focus
+    });
+    
+    document.getElementById('btn').addEventListener('click', () => {
+      setTimeout(() => {
+        editor.focus();
+        if (savedRange) {
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(savedRange);
+        }
+        document.execCommand('fontSize', false, "7");
+        saveSelection();
+      }, 300);
+    });
+  </script>
+</body>
+</html>

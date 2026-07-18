@@ -1,0 +1,45 @@
+"""招聘者 — 候选人投递申请管理。"""
+import click
+
+from boss_agent_cli.auth.manager import AuthManager
+from boss_agent_cli.compliance import require_compliance_allowed
+from boss_agent_cli.commands._recruiter_platform import get_recruiter_platform_instance
+from boss_agent_cli.display import error_contract_for_code, handle_auth_errors, handle_error_output, handle_output
+
+
+@click.command("applications")
+@click.option("--job-id", default=None, help="按职位筛选")
+@click.option("--label-id", default=0, type=int, help="按标签筛选（0=全部, 1=新招呼, 2=沟通中）")
+@click.option("--page", default=1, type=int, help="页码")
+@click.pass_context
+@handle_auth_errors("recruiter-applications")
+def applications_cmd(ctx: click.Context, job_id: str | None, label_id: int, page: int) -> None:
+	"""查看候选人投递申请列表"""
+	if not require_compliance_allowed(ctx, "recruiter-applications"):
+		return
+
+	data_dir = ctx.obj["data_dir"]
+	logger = ctx.obj["logger"]
+
+	auth = AuthManager(data_dir, logger=logger, platform=ctx.obj.get("platform", "zhipin"))
+	with get_recruiter_platform_instance(ctx, auth) as platform:
+		result = platform.friend_list(page=page, label_id=label_id, job_id=job_id)
+		if not platform.is_success(result):
+			code, message = platform.parse_error(result)
+			recoverable, recovery_action = error_contract_for_code(code)
+			handle_error_output(
+				ctx, "recruiter-applications",
+				code=code,
+				message=message or "投递申请列表获取失败",
+				recoverable=recoverable,
+				recovery_action=recovery_action,
+			)
+			return
+		data = platform.unwrap_data(result) or {}
+		handle_output(
+			ctx, "recruiter-applications", data,
+			hints={"next_actions": [
+				"boss hr resume <geek_id> --job-id <id> --security-id <id> — 查看候选人简历",
+				"boss hr chat — 查看沟通列表",
+			]},
+		)

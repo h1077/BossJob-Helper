@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[Memory] Session ending — check CLAUDE.md memory rules\""
+          }
+        ]
+      }
+    ]
+  }
+}

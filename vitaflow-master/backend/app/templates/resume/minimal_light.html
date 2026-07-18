@@ -1,0 +1,94 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .minimal-light {
+      --ink: #333333;
+      --muted: #777777;
+      --accent: var(--theme-color);
+      --bg: {{ config.bg_color or '#ffffff' }};
+      background-color: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .minimal-light .resume-header {
+      position: relative;
+      padding: 2mm 0;
+      border-bottom: 1px solid #eaeaea;
+      margin-bottom: 3mm;
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 4mm;
+    }
+    .minimal-light .resume-header-main { flex: 1; min-width: 0; }
+    .minimal-light .resume-name {
+      font-size: calc(var(--name-font-size) + 8px);
+      font-weight: 300;
+      letter-spacing: 2px;
+      margin-bottom: 2mm;
+    }
+    .minimal-light .resume-position {
+      color: var(--accent);
+      font-weight: 500;
+      font-size: var(--title-font-size);
+    }
+    .minimal-light .resume-meta {
+      margin-top: 2mm;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3mm 6mm;
+      font-size: calc(var(--base-font-size) - 1px);
+    }
+    .minimal-light .resume-meta span { display: flex; align-items: center; gap: 1.5mm; }
+    .minimal-light .resume-avatar-cell { position: static; flex-shrink: 0; }
+    .minimal-light .resume-avatar { width: 25mm; height: 35mm; border-radius: 4px; object-fit: cover; border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .minimal-light .section {
+      margin-bottom: var(--section-margin-bottom);
+    }
+    .minimal-light .section-title {
+      font-size: calc(var(--title-font-size) + 2px);
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 4mm;
+      padding-bottom: 2mm;
+      border-bottom: 1px solid #eaeaea;
+    }
+    .minimal-light .section-title::after {
+      content: '';
+      display: block;
+      width: 24mm;
+      height: 2px;
+      background-color: var(--accent);
+      margin-top: 2mm;
+      margin-bottom: -2px;
+    }
+    .minimal-light .item-head { font-weight: 600; color: var(--ink); }
+    .minimal-light .item-sub { color: var(--muted); }
+    .minimal-light .tag-row span {
+      background: #f9f9f9;
+      border: 1px solid #eaeaea;
+      color: var(--muted);
+      border-radius: 4px;
+      padding: 2px 8px;
+    }
+    .minimal-light .rich-text-body blockquote { border-left: 3px solid #eaeaea; padding-left: 4mm; color: var(--muted); }
+    .minimal-light .experience-item { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <main class="resume-page minimal-light">
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    {% for section in resume._sections %}
+      {{ render_section(section, resume) }}
+    {% endfor %}
+  </main>
+</body>
+</html>

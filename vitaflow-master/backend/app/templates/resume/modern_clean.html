@@ -1,0 +1,101 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .modern-clean {
+      --ink: #2c3e50;
+      --muted: #7f8c8d;
+      --accent: var(--theme-color);
+      --bg: {{ config.bg_color or '#fdfdfd' }};
+      background-color: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    .modern-clean .resume-header {
+      position: relative;
+      padding: 2mm 0;
+      border-bottom: 2px solid var(--accent);
+      margin-bottom: 3mm;
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 4mm;
+    }
+    .modern-clean .resume-header-main { flex: 1; min-width: 0; }
+    .modern-clean .resume-name {
+      font-size: calc(var(--name-font-size) + 6px);
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 2mm;
+    }
+    .modern-clean .resume-position {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: calc(var(--title-font-size) + 1px);
+    }
+    .modern-clean .resume-meta {
+      margin-top: 2mm;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3mm 6mm;
+    }
+    .modern-clean .resume-meta span { display: flex; align-items: center; gap: 1.5mm; }
+    .modern-clean .resume-avatar-cell { position: static; flex-shrink: 0; }
+    .modern-clean .resume-avatar { width: 25mm; height: 35mm; border-radius: 4px; object-fit: cover; border: none; }
+    .modern-clean .section {
+      margin-bottom: calc(var(--section-margin-bottom) + 4px);
+    }
+    .modern-clean .section-title {
+      font-size: calc(var(--title-font-size) + 2px);
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: calc(var(--section-title-margin-bottom) + 4px);
+      padding: 0 0 6px 0;
+      border-bottom: 1px solid #e2e8f0;
+      position: relative;
+      display: block;
+      background: transparent;
+      border-left: none;
+      border-radius: 0;
+      letter-spacing: 0.5px;
+    }
+    .modern-clean .section-title::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: -1px;
+      width: 36px;
+      height: 2px;
+      background-color: var(--accent);
+      border-radius: 2px;
+    }
+    .modern-clean .item-head { font-weight: 700; color: var(--ink); }
+    .modern-clean .item-sub { color: var(--muted); margin-bottom: 4px; }
+    .modern-clean .tag-row span {
+      background: #f8fafc;
+      color: var(--accent);
+      border-radius: 6px;
+      padding: 2px 10px;
+      border: 1px solid #e2e8f0;
+      font-size: 0.9em;
+    }
+    .modern-clean .experience-item { margin-bottom: 12px; }
+    .modern-clean .experience-item:last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <main class="resume-page modern-clean">
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    {% for section in resume._sections %}
+      {{ render_section(section, resume) }}
+    {% endfor %}
+  </main>
+</body>
+</html>

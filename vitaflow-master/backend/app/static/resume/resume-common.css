@@ -1,0 +1,4 @@
+@page { size: A4; margin: 0; }
+.resume-page { width: 210mm; min-height: 297mm; box-sizing: border-box; }
+.section, .experience-item { break-inside: avoid; page-break-inside: avoid; }
+.section-title { break-after: avoid; page-break-after: avoid; }

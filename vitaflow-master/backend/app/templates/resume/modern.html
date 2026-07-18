@@ -1,0 +1,150 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .modern-template {
+      padding: 0;
+      color: var(--body-font-color);
+    }
+    .modern-template .resume-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      width: auto;
+      min-height: 44mm;
+      margin: 0;
+      padding: calc(var(--page-margin-top) * 1mm) calc(var(--page-margin-right) * 1mm) 10mm calc(var(--page-margin-left) * 1mm);
+      border-bottom: 0;
+      background: var(--theme-color);
+      background-color: var(--theme-color);
+      color: white;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .modern-template .resume-header-main {
+      display: block;
+      width: auto;
+      min-width: 0;
+    }
+    .modern-template .resume-avatar-cell {
+      display: block;
+      width: 30mm;
+      padding-left: 8mm;
+      text-align: right;
+    }
+    .modern-template .resume-avatar {
+      width: 24mm;
+      height: 32mm;
+      margin-top: 0;
+      border-radius: 0;
+      background: white;
+      object-fit: cover;
+    }
+    .modern-template .resume-avatar-left {
+      justify-content: flex-start;
+      align-items: center;
+      gap: 10mm;
+    }
+    .modern-template .resume-avatar-left .resume-avatar-cell {
+      width: auto;
+      padding: 0;
+      text-align: left;
+    }
+    .modern-template .resume-avatar-left .resume-header-main {
+      flex: 1;
+    }
+    .modern-template .resume-name,
+    .modern-template .resume-position,
+    .modern-template .resume-meta {
+      color: white;
+    }
+    .modern-template .resume-name {
+      font-size: var(--name-font-size);
+    }
+    .modern-template .meta-icon {
+      color: var(--header-icon-color);
+    }
+    .modern-body {
+      display: grid;
+      grid-template-columns: minmax(0, 0.36fr) minmax(0, 0.64fr);
+      gap: 10mm;
+      padding: calc(var(--page-margin-top) * 1mm) calc(var(--page-margin-right) * 1mm) calc(var(--page-margin-bottom) * 1mm) calc(var(--page-margin-left) * 1mm);
+    }
+    .modern-column {
+      min-width: 0;
+    }
+    .modern-sidebar {
+      padding-right: 6mm;
+      border-right: 1px solid #dbeafe;
+    }
+    .modern-template .section {
+      margin-top: var(--section-margin-top);
+      margin-bottom: var(--section-margin-bottom);
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .modern-template .section:first-child {
+      margin-top: 0;
+    }
+    .modern-template .section-title {
+      margin-bottom: var(--section-title-margin-bottom);
+      color: var(--theme-color);
+      border-bottom: 1px solid #dbeafe;
+    }
+    .modern-sidebar .section-title {
+      font-size: {{ (config.title_font_size or 16) - 1 if (config.title_font_size or 16) > 13 else 12 }}px;
+    }
+    .modern-sidebar .item-head {
+      display: block;
+    }
+    .modern-sidebar .item-head > span {
+      display: block;
+      margin-top: 1mm;
+      color: #6b7280;
+      font-weight: 400;
+    }
+    .modern-sidebar .tag-row {
+      gap: 4px;
+    }
+    .modern-sidebar .tag-row span {
+      padding: 1px 6px;
+      font-size: 0.92em;
+    }
+    @media print {
+      .modern-template .section,
+      .modern-template .experience-item,
+      .modern-template .rich-text-body li {
+        break-inside: auto !important;
+        page-break-inside: auto !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="resume-page modern-template">
+    {% set basics_icon_color = config.header_icon_color or config.icon_color or '#ffffff' %}
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    <div class="modern-body">
+      <aside class="modern-column modern-sidebar">
+        {% for section in resume._sections %}
+          {% if section.key in ['summary', 'education', 'skills', 'awards'] %}
+            {{ render_section(section, resume) }}
+          {% endif %}
+        {% endfor %}
+      </aside>
+      <section class="modern-column modern-main">
+        {% for section in resume._sections %}
+          {% if section.key in ['work', 'projects'] or section.key.startswith('custom_') %}
+            {{ render_section(section, resume) }}
+          {% endif %}
+        {% endfor %}
+      </section>
+    </div>
+  </main>
+</body>
+</html>

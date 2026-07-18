@@ -1,0 +1,46 @@
+{% set basics = resume.basics or {} %}
+{% set avatar_position = config.avatar_position if config.avatar_position in ['left', 'center', 'right'] else 'right' %}
+{% import 'resume/partials/icons.html' as icons %}
+{% macro meta_icon(name) -%}
+  {% set color = config.icon_color or config.theme_color or '#2563eb' %}
+  {{ icons.resume_icon(name, 'meta-icon', color)|safe }}
+{%- endmacro %}
+<header class="resume-header resume-avatar-{{ avatar_position }}">
+  {% if config.show_avatar and basics.avatar and avatar_position in ['left', 'center'] %}
+    <div class="resume-avatar-cell"><img class="resume-avatar" src="{{ basics.avatar }}" alt="{{ resume._labels.avatar_alt }}"></div>
+  {% endif %}
+  <div class="resume-header-main">
+    <h1 class="resume-name">{{ basics.name or resume._labels.unnamed }}</h1>
+    <div class="resume-position">{{ basics.title or '' }}</div>
+    {% for row in [1, 2, 3, 4] %}
+      {% set ns = namespace(has=false) %}
+      {% for key, cfg in (basics.field_config or {}).items() %}
+        {% if (cfg.row or 1)|int == row and basics.get(key) %}
+          {% set ns.has = true %}
+        {% endif %}
+      {% endfor %}
+      {% for field in basics.custom_fields or [] %}
+        {% if (field.row or 1)|int == row and field.value %}
+          {% set ns.has = true %}
+        {% endif %}
+      {% endfor %}
+      {% if ns.has %}
+        <div class="resume-meta">
+          {% for key, cfg in (basics.field_config or {}).items()|sort(attribute='1.order') %}
+            {% if (cfg.row or 1)|int == row and basics.get(key) %}
+              <span>{{ meta_icon(cfg.icon)|safe }}{{ basics.get(key) }}</span>
+            {% endif %}
+          {% endfor %}
+          {% for field in basics.custom_fields or [] %}
+            {% if (field.row or 1)|int == row and field.value %}
+              <span>{{ meta_icon(field.icon)|safe }}{{ field.value }}</span>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% if config.show_avatar and basics.avatar and avatar_position == 'right' %}
+    <div class="resume-avatar-cell"><img class="resume-avatar" src="{{ basics.avatar }}" alt="{{ resume._labels.avatar_alt }}"></div>
+  {% endif %}
+</header>

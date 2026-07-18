@@ -1,0 +1,107 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .elegant-line {
+      --ink: #111827;
+      --muted: #6b7280;
+      --accent: var(--theme-color);
+      font-family: "Georgia", "Times New Roman", "Noto Serif SC", serif;
+      color: var(--ink);
+    }
+    .elegant-line .resume-header {
+      position: relative;
+      padding: 2mm 0;
+      margin-bottom: 5mm;
+      text-align: center;
+      border-bottom: 1px solid var(--ink);
+    }
+    .elegant-line .resume-name {
+      font-size: calc(var(--name-font-size) + 10px);
+      font-weight: 400;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      margin-bottom: 3mm;
+    }
+    .elegant-line .resume-position {
+      color: var(--accent);
+      font-size: calc(var(--title-font-size) + 1px);
+      font-style: italic;
+    }
+    .elegant-line .resume-meta {
+      margin-top: 2mm;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 3mm 6mm;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 0.9em;
+    }
+    .elegant-line .resume-meta span { display: flex; align-items: center; gap: 1.5mm; }
+    .elegant-line .resume-avatar-cell { position: absolute; top: 0; right: 0; }
+    .elegant-line .resume-avatar { width: 25mm; height: 35mm; border-radius: 4px; object-fit: cover; border: none; }
+    .elegant-line .resume-avatar-left .resume-avatar-cell,
+    .elegant-line .resume-avatar-center .resume-avatar-cell { position: static; }
+    .elegant-line .resume-avatar-left { text-align: left; }
+    .elegant-line .resume-avatar-left .resume-header-main { text-align: center; }
+    .elegant-line .resume-avatar-center .resume-avatar-cell { margin-bottom: 3mm; }
+    .elegant-line .section {
+      margin-top: calc(var(--section-margin-top) + 2px);
+      margin-bottom: calc(var(--section-margin-bottom) + 2px);
+      display: grid;
+      grid-template-columns: 28mm 1fr;
+      column-gap: 8mm;
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: calc(var(--section-margin-bottom) - 2px);
+    }
+    .elegant-line .section:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .elegant-line .section-title {
+      font-size: calc(var(--title-font-size) + 1px);
+      font-weight: 600;
+      color: var(--ink);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin: 0;
+      padding: 0;
+      border: none;
+    }
+    .elegant-line .section > :not(.section-title) {
+      grid-column: 2;
+      border: none;
+      padding: 0;
+      min-width: 0;
+    }
+    .elegant-line .item-head { font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .elegant-line .item-sub { color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin-bottom: 4px; }
+    .elegant-line .rich-text-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .elegant-line .tag-row span {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      color: var(--ink);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 0.95em;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .elegant-line .experience-item { margin-bottom: 12px; }
+    .elegant-line .experience-item:last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <main class="resume-page elegant-line">
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    {% for section in resume._sections %}
+      {{ render_section(section, resume) }}
+    {% endfor %}
+  </main>
+</body>
+</html>

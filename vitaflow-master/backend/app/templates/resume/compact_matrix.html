@@ -1,0 +1,154 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .compact-matrix {
+      --ink: #111827;
+      --muted: #5b6472;
+      --grid: #cfd6df;
+      --accent: var(--theme-color);
+      color: var(--ink);
+      background: {{ config.bg_color or '#ffffff' }};
+      font-size: calc(var(--body-font-size) - 1px);
+      line-height: 1.45;
+    }
+    .compact-matrix .resume-header {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 6mm;
+      padding-bottom: 4mm;
+      margin-bottom: 4mm;
+      border: 0;
+      border-bottom: 1.5px solid var(--ink);
+    }
+    .compact-matrix .resume-header-main {
+      flex: 1;
+      min-width: 0;
+    }
+    .compact-matrix .resume-name {
+      margin: 0;
+      color: var(--ink);
+      font-size: calc(var(--name-font-size) + 2px);
+      font-weight: 900;
+      line-height: 1.1;
+    }
+    .compact-matrix .resume-position {
+      margin-top: 2mm;
+      color: var(--accent);
+      font-size: calc(var(--title-font-size) - 1px);
+      font-weight: 800;
+    }
+    .compact-matrix .resume-meta {
+      margin-top: 3mm;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2mm 6mm;
+      color: var(--muted);
+      font-size: 0.9em;
+    }
+    .compact-matrix .resume-meta + .resume-meta { margin-top: 2mm; }
+    .compact-matrix .resume-meta span {
+      display: inline-flex;
+      align-items: center;
+      margin: 0;
+      gap: 1.5mm;
+      white-space: nowrap;
+    }
+    .compact-matrix .resume-avatar-cell {
+      position: static;
+      flex-shrink: 0;
+    }
+    .compact-matrix .resume-avatar {
+      width: 25mm;
+      height: 35mm;
+      margin: 0;
+      border-radius: 4px;
+      border: none;
+      object-fit: cover;
+    }
+    .compact-matrix .section {
+      display: grid;
+      grid-template-columns: 29mm minmax(0, 1fr);
+      gap: 5mm;
+      margin: 0;
+      padding: 3mm 0;
+      border-bottom: 1px solid var(--grid);
+    }
+    .compact-matrix .section:first-of-type { border-top: 1px solid var(--grid); }
+    .compact-matrix .section-title {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      color: var(--accent);
+      font-size: calc(var(--title-font-size) - 2px);
+      font-weight: 900;
+      line-height: 1.25;
+    }
+    .compact-matrix .section > :not(.section-title) {
+      grid-column: 2;
+      min-width: 0;
+    }
+    .compact-matrix .experience-item {
+      margin-bottom: 6px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .compact-matrix .experience-item:last-child { margin-bottom: 0; }
+    .compact-matrix .item-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 4mm;
+      color: var(--ink);
+      font-weight: 800;
+    }
+    .compact-matrix .item-head > span {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.88em;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .compact-matrix .inline-meta,
+    .compact-matrix .item-sub {
+      color: var(--muted);
+      font-size: 0.92em;
+    }
+    .compact-matrix .tag-row {
+      gap: 3px;
+      margin: 3px 0;
+    }
+    .compact-matrix .tag-row span {
+      border-radius: 0;
+      border: 1px solid var(--grid);
+      background: transparent;
+      color: var(--ink);
+      padding: 0 5px;
+      font-size: 0.86em;
+    }
+    .compact-matrix .rich-text-body p { margin: 2px 0; }
+    .compact-matrix .rich-text-body ul,
+    .compact-matrix .rich-text-body ol { margin: 2px 0 2px 16px; }
+    .compact-matrix .rich-text-body li { margin: 1px 0; }
+    .compact-matrix .rich-text-body blockquote {
+      margin: 3px 0;
+      border-left: 2px solid var(--accent);
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="resume-page compact-matrix">
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    {% for section in resume._sections %}
+      {{ render_section(section, resume) }}
+    {% endfor %}
+  </main>
+</body>
+</html>

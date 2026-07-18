@@ -1,0 +1,932 @@
+"""模型上下文协议服务测试 — 覆盖工具定义、参数构建和调用逻辑。"""
+import inspect
+import re
+import sys
+import types
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
+
+# mcp 包可能未安装，用 mock 模块替代以允许导入 server.py
+_mcp_mock = types.ModuleType("mcp")
+_mcp_server = types.ModuleType("mcp.server")
+_mcp_stdio = types.ModuleType("mcp.server.stdio")
+_mcp_types = types.ModuleType("mcp.types")
+_mcp_server.Server = MagicMock()
+_mcp_stdio.stdio_server = MagicMock()
+_mcp_types.TextContent = MagicMock()
+_mcp_types.Tool = type("Tool", (), {"__init__": lambda self, **kw: self.__dict__.update(kw)})
+_mcp_mock.server = _mcp_server
+_mcp_mock.types = _mcp_types
+
+sys.modules.setdefault("mcp", _mcp_mock)
+sys.modules.setdefault("mcp.server", _mcp_server)
+sys.modules.setdefault("mcp.server.stdio", _mcp_stdio)
+sys.modules.setdefault("mcp.types", _mcp_types)
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp-server"))
+import server  # noqa: E402
+from server import (  # noqa: E402
+	SERVER_INSTRUCTIONS,
+	TOOLS,
+	_build_args,
+	_configure_boss_invocation,
+	_compliance_command_for_tool,
+	_LOW_RISK_BLOCKED_TOOLS,
+	_tool_availability,
+	_parse_cli_args,
+	_run_boss,
+	_run_http_server,
+	_run_sse_server,
+	run,
+)
+from boss_agent_cli.compliance import low_risk_blocked_commands  # noqa: E402
+from boss_agent_cli.main import cli  # noqa: E402
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _read(path: str) -> str:
+	return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _placeholder_value(schema: dict) -> object:
+	if "default" in schema:
+		return schema["default"]
+	if schema.get("enum"):
+		return schema["enum"][0]
+	if schema.get("type") == "integer":
+		return 1
+	if schema.get("type") == "boolean":
+		return False
+	if schema.get("type") == "array":
+		item_schema = schema.get("items") or {}
+		return [_placeholder_value(item_schema)]
+	return "placeholder"
+
+
+def _required_arguments(tool) -> dict[str, object]:
+	properties = tool.inputSchema.get("properties", {})
+	return {
+		name: _placeholder_value(properties.get(name, {}))
+		for name in tool.inputSchema.get("required", [])
+	}
+
+
+# ── 工具定义完整性 ──────────────────────────────────────────────────
+
+
+def test_tools_not_empty():
+	"""工具列表不应为空。"""
+	assert len(TOOLS) > 0
+
+
+def test_all_tools_have_name_and_description():
+	"""每个工具都应有名称和描述。"""
+	for tool in TOOLS:
+		assert tool.name, "工具缺少名称"
+		assert tool.description, f"{tool.name} 缺少描述"
+
+
+def test_candidate_tool_description_includes_availability():
+	search = next(t for t in TOOLS if t.name == "boss_search")
+	assert "可用性:" in search.description
+	assert "roles=candidate" in search.description
+	assert "zhilian" in search.description
+	assert "zhipin" in search.description
+
+
+def test_recruiter_tool_description_includes_availability():
+	tool = next(t for t in TOOLS if t.name == "boss_hr_jobs")
+	assert "可用性:" in tool.description
+	assert "roles=recruiter" in tool.description
+	assert "zhipin-recruiter" in tool.description
+
+
+def test_all_tools_have_input_schema():
+	"""每个工具都应有输入模式定义。"""
+	for tool in TOOLS:
+		schema = tool.inputSchema
+		assert isinstance(schema, dict), f"{tool.name} 缺少输入模式"
+		assert schema.get("type") == "object", f"{tool.name} 输入模式类型应为 object"
+
+
+def test_exposed_tools_have_schema_availability_metadata():
+	"""每个暴露的 MCP 工具都必须能回溯到 boss schema 可用性元数据。"""
+	missing = [tool.name for tool in TOOLS if not _tool_availability(tool.name)]
+	assert not missing
+
+
+def test_tool_names_follow_convention():
+	"""所有工具名应以 boss_ 开头。"""
+	for tool in TOOLS:
+		assert tool.name.startswith("boss_"), f"{tool.name} 不符合命名规范"
+
+
+def test_required_tools_present():
+	"""核心工具应存在。"""
+	names = {t.name for t in TOOLS}
+	required = {
+		"boss_status", "boss_doctor", "boss_search", "boss_detail",
+		"boss_me", "boss_cities",
+		"boss_show", "boss_export", "boss_config", "boss_clean",
+		"boss_stats", "boss_agent_run", "boss_agent_review_approve",
+		"boss_agent_review_reject", "boss_agent_stop", "boss_ai_reply",
+		"boss_ai_interview_prep", "boss_ai_chat_coach",
+		"boss_resume_list", "boss_resume_show",
+		"boss_ai_analyze_jd", "boss_ai_optimize", "boss_ai_suggest",
+		"boss_ai_fit",
+		"boss_watch_list",
+		"boss_preset_list", "boss_shortlist_list",
+		"boss_shortlist_annotate", "boss_shortlist_compare",
+		"boss_hr_jobs",
+		"boss_hr_jobs_detail",
+	}
+	missing = required - names
+	assert not missing, f"缺少核心工具: {missing}"
+
+
+def test_tool_count():
+	"""工具总数应与当前注册一致。"""
+	assert len(TOOLS) == 45
+
+
+def test_mcp_tool_count_matches_readme():
+	content = _read("README.en.md")
+	match = re.search(r"MCP server with (\d+) tools", content)
+	assert match
+	assert int(match.group(1)) == len(TOOLS)
+
+
+def test_server_instructions_carry_doctrine():
+	assert SERVER_INSTRUCTIONS
+	assert "COMPLIANCE_BLOCKED" in SERVER_INSTRUCTIONS
+	assert "boss schema" in SERVER_INSTRUCTIONS
+
+
+def test_every_tool_maps_to_registered_command():
+	registered_commands = set(cli.commands)
+	for tool in TOOLS:
+		args = _build_args(tool.name, _required_arguments(tool))
+		assert args, tool.name
+		assert args[0] in registered_commands, tool.name
+
+
+def test_search_tool_requires_query():
+	"""搜索工具应要求 query 参数。"""
+	search = next(t for t in TOOLS if t.name == "boss_search")
+	assert "query" in search.inputSchema.get("required", [])
+
+
+def test_sensitive_tools_not_exposed_by_default():
+	"""默认低风险模式下，敏感 MCP 工具不直接暴露给 Agent。"""
+	names = {t.name for t in TOOLS}
+	assert "boss_greet" not in names
+	assert "boss_batch_greet" not in names
+	assert "boss_chat" not in names
+	assert "boss_pipeline" not in names
+	assert "boss_watch_run" not in names
+	assert "boss_hr_candidates" not in names
+
+
+def test_low_risk_blocked_tools_are_derived_from_compliance_commands():
+	"""MCP 低风险过滤集合必须从 compliance 命令集合派生，避免独立手写漂移。"""
+	blocked_commands = low_risk_blocked_commands()
+	assert _LOW_RISK_BLOCKED_TOOLS
+	for tool_name in _LOW_RISK_BLOCKED_TOOLS:
+		assert _compliance_command_for_tool(tool_name) in blocked_commands
+	assert _compliance_command_for_tool("boss_hr_exchange") == "recruiter-resume"
+	assert _compliance_command_for_tool("boss_watch_run") == "watch-run"
+
+
+def test_low_risk_blocked_tools_match_schema_blocked_commands():
+	"""MCP 隐藏工具集合必须与 schema 暴露的低风险阻断命令保持同源。"""
+	blocked_commands = low_risk_blocked_commands()
+	assert {
+		_compliance_command_for_tool(tool_name)
+		for tool_name in _LOW_RISK_BLOCKED_TOOLS
+	} == blocked_commands
+
+
+def test_no_exposed_tool_maps_to_schema_blocked_command():
+	"""默认暴露的 MCP 工具不得映射到 schema/compliance 的低风险阻断命令。"""
+	blocked_commands = low_risk_blocked_commands()
+	leaked = [
+		tool.name
+		for tool in TOOLS
+		if _compliance_command_for_tool(tool.name) in blocked_commands
+	]
+	assert not leaked
+
+
+# ── 参数构建 ────────────────────────────────────────────────────────
+
+
+def test_build_args_status():
+	"""无参数命令应只返回命令名。"""
+	assert _build_args("boss_status", {}) == ["status"]
+
+
+def test_build_args_doctor():
+	assert _build_args("boss_doctor", {}) == ["doctor"]
+
+
+def test_build_args_cities():
+	assert _build_args("boss_cities", {}) == ["cities"]
+
+
+def test_build_args_interviews():
+	assert _build_args("boss_interviews", {}) == ["interviews"]
+
+
+def test_build_args_history():
+	assert _build_args("boss_history", {}) == ["history"]
+
+
+def test_build_args_search_basic():
+	"""搜索只传 query 时应返回最小参数。"""
+	args = _build_args("boss_search", {"query": "python"})
+	assert args == ["search", "python"]
+
+
+def test_build_args_search_with_options():
+	"""搜索传多个选项时应正确拼接。"""
+	args = _build_args("boss_search", {
+		"query": "golang",
+		"city": "北京",
+		"salary": "20-40K",
+		"page": 2,
+	})
+	assert "search" in args
+	assert "golang" in args
+	assert "--city" in args
+	assert "北京" in args
+	assert "--salary" in args
+	assert "20-40K" in args
+	assert "--page" in args
+	assert "2" in args
+
+
+def test_build_args_search_with_score_sort():
+	args = _build_args("boss_search", {"query": "python", "sort": "score"})
+	assert args == ["search", "python", "--sort", "score"]
+
+
+def test_build_args_search_ignores_empty_options():
+	"""空选项不应出现在参数中。"""
+	args = _build_args("boss_search", {"query": "java", "city": "", "salary": None})
+	assert "--city" not in args
+	assert "--salary" not in args
+
+
+def test_build_args_recommend_no_page():
+	args = _build_args("boss_recommend", {})
+	assert args == ["recommend"]
+
+
+def test_build_args_recommend_with_page():
+	args = _build_args("boss_recommend", {"page": 3})
+	assert args == ["recommend", "--page", "3"]
+
+
+def test_build_args_detail_basic():
+	args = _build_args("boss_detail", {"security_id": "abc123"})
+	assert args == ["detail", "abc123"]
+
+
+def test_build_args_detail_with_job_id():
+	args = _build_args("boss_detail", {"security_id": "abc", "job_id": "j456"})
+	assert "--job-id" in args
+	assert "j456" in args
+
+
+def test_build_args_greet():
+	args = _build_args("boss_greet", {"security_id": "s1", "job_id": "j1"})
+	assert args == ["greet", "s1", "j1"]
+
+
+def test_build_args_chat_no_options():
+	args = _build_args("boss_chat", {})
+	assert args == ["chat"]
+
+
+def test_build_args_chat_with_all_options():
+	args = _build_args("boss_chat", {"from_who": "boss", "days": 7, "page": 2})
+	assert "--from" in args
+	assert "boss" in args
+	assert "--days" in args
+	assert "7" in args
+	assert "--page" in args
+
+
+def test_build_args_me_no_section():
+	args = _build_args("boss_me", {})
+	assert args == ["me"]
+
+
+def test_build_args_me_with_section():
+	args = _build_args("boss_me", {"section": "resume"})
+	assert args == ["me", "--section", "resume"]
+
+
+# ── 新增工具参数构建 ────────────────────────────────────────────────
+
+
+def test_build_args_chatmsg():
+	args = _build_args("boss_chatmsg", {"security_id": "s1", "page": 2})
+	assert args == ["chatmsg", "s1", "--page", "2"]
+
+
+def test_build_args_chatmsg_raw():
+	args = _build_args("boss_chatmsg", {"security_id": "s1", "page": 2, "count": 50, "raw": True})
+	assert args == ["chatmsg", "s1", "--page", "2", "--count", "50", "--raw"]
+
+
+def test_build_args_chat_summary():
+	args = _build_args("boss_chat_summary", {"security_id": "s1"})
+	assert args == ["chat-summary", "s1"]
+
+
+def test_build_args_mark():
+	args = _build_args("boss_mark", {"security_id": "s1", "tag": "收藏"})
+	assert args == ["mark", "s1", "--tag", "收藏"]
+
+
+def test_build_args_mark_remove():
+	args = _build_args("boss_mark", {"security_id": "s1", "tag": "收藏", "remove": True})
+	assert "--remove" in args
+
+
+def test_build_args_exchange():
+	assert _build_args("boss_exchange", {"security_id": "s1"}) == ["exchange", "s1"]
+
+
+def test_build_args_apply():
+	assert _build_args("boss_apply", {"security_id": "s1", "job_id": "j1"}) == ["apply", "s1", "j1"]
+
+
+def test_build_args_batch_greet():
+	args = _build_args("boss_batch_greet", {"query": "python", "limit": 3, "dry_run": True})
+	assert "batch-greet" in args
+	assert "python" in args
+	assert "--limit" in args
+	assert "--dry-run" in args
+
+
+def test_build_args_show():
+	assert _build_args("boss_show", {"number": 5}) == ["show", "5"]
+
+
+def test_build_args_pipeline():
+	assert _build_args("boss_pipeline", {}) == ["pipeline"]
+
+
+def test_build_args_follow_up():
+	args = _build_args("boss_follow_up", {"days_stale": 7})
+	assert args == ["follow-up", "--days-stale", "7"]
+
+
+def test_build_args_digest():
+	args = _build_args("boss_digest", {"days_stale": 5})
+	assert args == ["digest", "--days-stale", "5"]
+
+
+def test_build_args_digest_format_md():
+	args = _build_args("boss_digest", {"format": "md"})
+	assert args == ["digest", "--format", "md"]
+
+
+def test_build_args_digest_format_md_with_output():
+	args = _build_args("boss_digest", {"format": "md", "output": "/tmp/d.md"})
+	assert args == ["digest", "--format", "md", "-o", "/tmp/d.md"]
+
+
+def test_build_args_config_list():
+	assert _build_args("boss_config", {"action": "list"}) == ["config", "list"]
+
+
+def test_build_args_config_set():
+	args = _build_args("boss_config", {"action": "set", "key": "log_level", "value": "debug"})
+	assert args == ["config", "set", "log_level", "debug"]
+
+
+def test_build_args_clean():
+	args = _build_args("boss_clean", {"dry_run": True, "all": True})
+	assert "clean" in args
+	assert "--dry-run" in args
+	assert "--all" in args
+
+
+# ── CLI 调用逻辑 ───────────────────────────────────────────────────
+
+
+@patch("server.subprocess.run")
+def test_run_boss_parses_json_output(mock_run):
+	"""正常 JSON 输出应被正确解析。"""
+	mock_run.return_value = MagicMock(
+		stdout='{"ok": true, "data": {"status": "logged_in"}}',
+		stderr="",
+	)
+	result = _run_boss("status")
+	assert result["ok"] is True
+	mock_run.assert_called_once()
+	cmd = mock_run.call_args[0][0]
+	assert cmd[0] == "boss"
+	assert "--json" in cmd
+
+
+@patch("server.subprocess.run")
+def test_run_boss_handles_invalid_json(mock_run):
+	"""非 JSON 输出应返回错误信封。"""
+	mock_run.return_value = MagicMock(stdout="not json", stderr="some error")
+	result = _run_boss("status")
+	assert result["ok"] is False
+	assert result["error"]["code"] == "CLI_ERROR"
+
+
+@patch("server.subprocess.run")
+def test_run_boss_handles_empty_output(mock_run):
+	"""空输出应返回错误信封。"""
+	mock_run.return_value = MagicMock(stdout="", stderr="command not found")
+	result = _run_boss("status")
+	assert result["ok"] is False
+	assert "command not found" in result["error"]["message"]
+
+
+@patch("server.subprocess.run")
+def test_run_boss_passes_args(mock_run):
+	"""参数应正确传递给 subprocess。"""
+	mock_run.return_value = MagicMock(stdout='{"ok": true}', stderr="")
+	_run_boss("search", "python", "--city", "北京")
+	cmd = mock_run.call_args[0][0]
+	assert cmd == ["boss", "--json", "search", "python", "--city", "北京"]
+
+
+@patch("server.subprocess.run")
+def test_run_boss_passes_configured_global_args_before_command(mock_run):
+	"""MCP 宿主配置的全局参数应传给底层 boss CLI。"""
+	mock_run.return_value = MagicMock(stdout='{"ok": true}', stderr="")
+	_configure_boss_invocation(
+		boss_bin="/opt/boss",
+		data_dir="./.boss-agent",
+		platform="zhilian",
+		role="recruiter",
+	)
+	try:
+		_run_boss("agent", "stats")
+		cmd = mock_run.call_args[0][0]
+		assert cmd == [
+			"/opt/boss", "--json",
+			"--data-dir", "./.boss-agent",
+			"--platform", "zhilian",
+			"--role", "recruiter",
+			"agent", "stats",
+		]
+	finally:
+		_configure_boss_invocation()
+
+
+@patch("server.subprocess.run")
+def test_run_boss_timeout(mock_run):
+	"""应设置 120 秒超时。"""
+	mock_run.return_value = MagicMock(stdout='{"ok": true}', stderr="")
+	_run_boss("doctor")
+	assert mock_run.call_args[1]["timeout"] == 120
+
+
+@patch("server.subprocess.run")
+def test_run_boss_detaches_child_stdin_from_mcp_stdio(mock_run):
+	"""boss 子进程不应继承 MCP stdio 协议输入流。"""
+	mock_run.return_value = MagicMock(stdout='{"ok": true}', stderr="")
+
+	_run_boss("status")
+
+	assert mock_run.call_args[1]["stdin"] is server.subprocess.DEVNULL
+
+
+def test_parse_cli_args_defaults():
+	args = _parse_cli_args([])
+	assert args.transport == "stdio"
+	assert args.host == "127.0.0.1"
+	assert args.port == 8765
+	assert args.path == "/mcp"
+	assert args.sse_path == "/sse"
+	assert args.message_path == "/messages/"
+	assert args.boss_bin == "boss"
+	assert args.data_dir is None
+	assert args.platform is None
+	assert args.role is None
+
+
+def test_parse_cli_args_accepts_boss_global_options():
+	args = _parse_cli_args([
+		"--transport", "stdio",
+		"--boss-bin", "/opt/boss",
+		"--data-dir", "./.boss-agent",
+		"--platform", "zhilian",
+		"--role", "recruiter",
+	])
+	assert args.boss_bin == "/opt/boss"
+	assert args.data_dir == "./.boss-agent"
+	assert args.platform == "zhilian"
+	assert args.role == "recruiter"
+
+
+def test_parse_cli_args_http_overrides():
+	args = _parse_cli_args([
+		"--transport", "http",
+		"--host", "0.0.0.0",
+		"--port", "9000",
+		"--path", "/rpc",
+	])
+	assert args.transport == "http"
+	assert args.host == "0.0.0.0"
+	assert args.port == 9000
+	assert args.path == "/rpc"
+
+
+@patch("boss_agent_cli.mcp_server.asyncio.run")
+@patch("boss_agent_cli.mcp_server.main")
+def test_run_defaults_to_stdio(mock_main, mock_asyncio_run):
+	mock_main.return_value = "stdio-coro"
+	run([])
+	mock_main.assert_called_once_with()
+	mock_asyncio_run.assert_called_once()
+	coro = mock_asyncio_run.call_args.args[0]
+	assert inspect.iscoroutine(coro)
+	coro.close()
+
+
+@patch("boss_agent_cli.mcp_server._run_sse_server")
+def test_run_dispatches_sse_transport(mock_run_sse):
+	run(["--transport", "sse", "--host", "0.0.0.0", "--port", "9001", "--sse-path", "/events", "--message-path", "/inbox"])
+	mock_run_sse.assert_called_once_with(
+		host="0.0.0.0",
+		port=9001,
+		sse_path="/events",
+		message_path="/inbox",
+	)
+
+
+@patch("boss_agent_cli.mcp_server._run_http_server")
+def test_run_dispatches_http_transport(mock_run_http):
+	run(["--transport", "http", "--host", "127.0.0.1", "--port", "9002", "--path", "/rpc"])
+	mock_run_http.assert_called_once_with(host="127.0.0.1", port=9002, path="/rpc")
+
+
+@patch("boss_agent_cli.mcp_server._serve_asgi_app")
+@patch("boss_agent_cli.mcp_server._create_sse_app")
+def test_run_sse_server_builds_app_and_serves(mock_create_app, mock_serve):
+	fake_app = object()
+	mock_create_app.return_value = fake_app
+	_run_sse_server(host="127.0.0.1", port=8765, sse_path="/sse", message_path="/messages/")
+	mock_create_app.assert_called_once_with(sse_path="/sse", message_path="/messages/")
+	mock_serve.assert_called_once_with(fake_app, host="127.0.0.1", port=8765)
+
+
+@patch("boss_agent_cli.mcp_server._serve_asgi_app")
+@patch("boss_agent_cli.mcp_server._create_streamable_http_app")
+def test_run_http_server_builds_app_and_serves(mock_create_app, mock_serve):
+	fake_app = object()
+	mock_create_app.return_value = fake_app
+	_run_http_server(host="127.0.0.1", port=8765, path="/mcp")
+	mock_create_app.assert_called_once_with(path="/mcp")
+	mock_serve.assert_called_once_with(fake_app, host="127.0.0.1", port=8765)
+
+
+# ── 新增工具 _build_args 覆盖（PR #41 扩展）─────────────────
+
+
+def test_build_args_stats_default():
+	assert _build_args("boss_stats", {}) == ["stats"]
+
+
+def test_build_args_stats_with_days():
+	args = _build_args("boss_stats", {"days": 7})
+	assert args == ["stats", "--days", "7"]
+
+
+def test_build_args_agent_run_and_stop():
+	assert _build_args("boss_agent_run", {"dry_run": True, "limit": 2}) == [
+		"agent", "run", "--dry-run", "--limit", "2",
+	]
+	assert _build_args("boss_agent_review_approve", {"id": "abc"}) == [
+		"agent", "review", "approve", "abc",
+	]
+	assert _build_args(
+		"boss_agent_review_reject",
+		{"id": "abc", "reason": "not-fit"},
+	) == ["agent", "review", "reject", "abc", "--reason", "not-fit"]
+	assert _build_args("boss_agent_stop", {"reason": "manual"}) == [
+		"agent", "stop", "--reason", "manual",
+	]
+
+
+def test_build_args_ai_reply_minimal():
+	args = _build_args("boss_ai_reply", {"recruiter_message": "请问到岗时间？"})
+	assert args == ["ai", "reply", "请问到岗时间？"]
+
+
+def test_build_args_ai_reply_full():
+	args = _build_args("boss_ai_reply", {
+		"recruiter_message": "hello",
+		"context": "previous chat",
+		"resume": "test",
+		"tone": "热情积极",
+	})
+	assert "--context" in args
+	assert "previous chat" in args
+	assert "--resume" in args
+	assert "test" in args
+
+
+def test_build_args_ai_interview_prep_minimal():
+	args = _build_args("boss_ai_interview_prep", {"jd_text": "后端工程师 JD"})
+	assert args == ["ai", "interview-prep", "后端工程师 JD"]
+
+
+def test_build_args_ai_interview_prep_full():
+	args = _build_args("boss_ai_interview_prep", {
+		"jd_text": "JD",
+		"resume": "r1",
+		"count": 5,
+	})
+	assert args[:3] == ["ai", "interview-prep", "JD"]
+	assert "--resume" in args and "r1" in args
+	assert "--count" in args and "5" in args
+
+
+def test_build_args_ai_chat_coach_minimal():
+	args = _build_args("boss_ai_chat_coach", {"chat_text": "聊天记录"})
+	assert args == ["ai", "chat-coach", "聊天记录"]
+
+
+def test_build_args_ai_chat_coach_full():
+	args = _build_args("boss_ai_chat_coach", {
+		"chat_text": "对话",
+		"resume": "r1",
+		"style": "积极主动",
+	})
+	assert args[:3] == ["ai", "chat-coach", "对话"]
+	assert "--resume" in args and "r1" in args
+	assert "--style" in args and "积极主动" in args
+
+
+def test_build_args_resume_list():
+	assert _build_args("boss_resume_list", {}) == ["resume", "list"]
+
+
+def test_build_args_resume_show():
+	assert _build_args("boss_resume_show", {"name": "default"}) == ["resume", "show", "default"]
+
+
+def test_build_args_ai_analyze_jd():
+	args = _build_args("boss_ai_analyze_jd", {"jd_text": "需要 Python", "resume": "my"})
+	assert args == ["ai", "analyze-jd", "需要 Python", "--resume", "my"]
+
+
+def test_build_args_ai_optimize():
+	args = _build_args("boss_ai_optimize", {"resume": "my", "jd_text": "后端岗位"})
+	assert args == ["ai", "optimize", "my", "--jd", "后端岗位"]
+
+
+def test_build_args_ai_suggest():
+	args = _build_args("boss_ai_suggest", {"resume": "my", "jd_text": "后端岗位"})
+	assert args == ["ai", "suggest", "my", "--jd", "后端岗位"]
+
+
+def test_build_args_ai_fit():
+	args = _build_args("boss_ai_fit", {"resume": "my", "limit": 3})
+	assert args == ["ai", "fit", "--resume", "my", "--limit", "3"]
+
+
+def test_build_args_watch_list():
+	assert _build_args("boss_watch_list", {}) == ["watch", "list"]
+
+
+def test_build_args_watch_run():
+	assert _build_args("boss_watch_run", {"name": "daily"}) == ["watch", "run", "daily"]
+
+
+def test_build_args_preset_list():
+	assert _build_args("boss_preset_list", {}) == ["preset", "list"]
+
+
+def test_build_args_shortlist_list():
+	assert _build_args("boss_shortlist_list", {}) == ["shortlist", "list"]
+
+
+def test_tool_count_after_pr41():
+	"""协议服务工具总数应与当前 MCP 暴露能力完全一致。"""
+	assert len(TOOLS) == 45
+
+
+def test_build_args_shortlist_add():
+	args = _build_args("boss_shortlist_add", {"security_id": "s1", "job_id": "j1", "tags": "远程,双休", "note": "优先"})
+	assert args == ["shortlist", "add", "s1", "j1", "--tags", "远程,双休", "--note", "优先"]
+
+
+def test_build_args_shortlist_annotate():
+	args = _build_args(
+		"boss_shortlist_annotate",
+		{"security_id": "s1", "job_id": "j1", "add_tags": ["远程", "双休"], "remove_tags": ["外包"], "note": "优先"},
+	)
+	assert args == [
+		"shortlist", "annotate", "s1", "j1",
+		"--add-tag", "远程", "--add-tag", "双休",
+		"--remove-tag", "外包",
+		"--note", "优先",
+	]
+
+
+def test_build_args_shortlist_compare():
+	args = _build_args("boss_shortlist_compare", {"tag": "远程"})
+	assert args == ["shortlist", "compare", "--tag", "远程"]
+
+
+def test_build_args_shortlist_remove():
+	args = _build_args("boss_shortlist_remove", {"security_id": "s1", "job_id": "j1"})
+	assert args == ["shortlist", "remove", "s1", "j1"]
+
+
+def test_build_args_preset_add_minimal():
+	args = _build_args("boss_preset_add", {"name": "p1", "query": "python"})
+	assert args == ["preset", "add", "p1", "python"]
+
+
+def test_build_args_preset_add_full():
+	args = _build_args("boss_preset_add", {
+		"name": "p1", "query": "golang",
+		"city": "上海", "salary": "30-50K", "welfare": "双休",
+	})
+	assert "--city" in args and "上海" in args
+	assert "--salary" in args and "30-50K" in args
+	assert "--welfare" in args and "双休" in args
+
+
+def test_build_args_preset_remove():
+	assert _build_args("boss_preset_remove", {"name": "p1"}) == ["preset", "remove", "p1"]
+
+
+def test_build_args_watch_add():
+	args = _build_args("boss_watch_add", {"name": "w1", "query": "rust", "city": "北京"})
+	assert args[:4] == ["watch", "add", "w1", "rust"]
+	assert "--city" in args and "北京" in args
+
+
+def test_build_args_watch_remove():
+	assert _build_args("boss_watch_remove", {"name": "w1"}) == ["watch", "remove", "w1"]
+
+
+def test_build_args_hr_applications():
+	args = _build_args("boss_hr_applications", {"job_id": "123", "label_id": 2, "page": 3})
+	assert args == ["hr", "applications", "--job-id", "123", "--label-id", "2", "--page", "3"]
+
+
+def test_build_args_hr_candidates():
+	args = _build_args("boss_hr_candidates", {
+		"query": "golang",
+		"city": "广州",
+		"job_id": "42",
+		"experience": "3-5年",
+		"degree": "本科",
+		"age": "20,25",
+		"school_level": "1101",
+		"activeness": "2",
+		"source": "4",
+		"salary": "-1,3",
+		"select": True,
+		"page": 2,
+	})
+	assert args == [
+		"hr", "candidates", "golang",
+		"--city", "广州",
+		"--job-id", "42",
+		"--experience", "3-5年",
+		"--degree", "本科",
+		"--age", "20,25",
+		"--school-level", "1101",
+		"--activeness", "2",
+		"--source", "4",
+		"--salary", "-1,3",
+		"--select",
+		"--page", "2",
+	]
+
+
+def test_build_args_hr_candidates_minimal():
+	args = _build_args("boss_hr_candidates", {"query": "golang"})
+	assert args == ["hr", "candidates", "golang"]
+
+
+def test_build_args_hr_candidates_select_false_omitted():
+	args = _build_args("boss_hr_candidates", {"query": "golang", "select": False})
+	assert "--select" not in args
+
+
+def test_build_args_hr_chat():
+	args = _build_args("boss_hr_chat", {"page": 2, "job_id": "55", "label_id": 1})
+	assert args == ["hr", "chat", "--page", "2", "--job-id", "55", "--label-id", "1"]
+
+
+def test_build_args_hr_chatmsg():
+	args = _build_args("boss_hr_chatmsg", {"friend_id": 12345, "count": 10, "max_msg_id": 9001})
+	assert args == ["hr", "chatmsg", "12345", "--count", "10", "--max-msg-id", "9001"]
+
+
+def test_build_args_hr_last_messages():
+	args = _build_args("boss_hr_last_messages", {"friend_ids": [12345, 67890], "page": 2})
+	assert args == ["hr", "last-messages", "--friend-id", "12345", "--friend-id", "67890", "--page", "2"]
+
+
+def test_build_args_hr_resume():
+	args = _build_args("boss_hr_resume", {"geek_id": "g1", "job_id": "99", "security_id": "s1", "raw": True})
+	assert args == ["hr", "resume", "g1", "--job-id", "99", "--security-id", "s1", "--raw"]
+
+
+def test_build_args_hr_exchange():
+	args = _build_args("boss_hr_exchange", {"friend_id": 12345, "type": "wechat"})
+	assert args == ["hr", "resume", "--exchange", "--friend-id", "12345", "--type", "wechat"]
+
+
+def test_build_args_hr_reply():
+	args = _build_args("boss_hr_reply", {"friend_id": 12345, "message": "你好"})
+	assert args == ["hr", "reply", "12345", "你好"]
+
+
+def test_build_args_hr_request_resume():
+	args = _build_args("boss_hr_request_resume", {"friend_id": 12345})
+	assert args == ["hr", "request-resume", "12345"]
+
+
+def test_build_args_hr_jobs_list():
+	assert _build_args("boss_hr_jobs", {"action": "list"}) == ["hr", "jobs", "list"]
+
+
+def test_build_args_hr_jobs_online():
+	assert _build_args("boss_hr_jobs", {"action": "online", "job_id": "77"}) == ["hr", "jobs", "online", "77"]
+
+
+def test_build_args_hr_jobs_detail():
+	assert _build_args("boss_hr_jobs_detail", {"enc_job_id": "abc123"}) == ["hr", "jobs", "detail", "abc123"]
+
+
+def test_build_args_export_minimal():
+	args = _build_args("boss_export", {"query": "python"})
+	assert args == ["export", "python"]
+
+
+def test_build_args_export_full():
+	args = _build_args("boss_export", {
+		"query": "golang",
+		"url": "https://www.zhipin.com/web/geek/job?query=golang",
+		"city": "深圳",
+		"salary": "20-50K",
+		"experience": "3-5年",
+		"education": "本科",
+		"industry": "互联网",
+		"scale": "100-499人",
+		"stage": "B轮",
+		"job_type": "全职",
+		"count": 100,
+		"format": "json",
+		"output_file": "/tmp/out.json",
+		"include_private": True,
+	})
+	assert args[0] == "export"
+	assert "golang" in args
+	assert "--url" in args
+	assert "--city" in args and "深圳" in args
+	assert "--salary" in args and "20-50K" in args
+	assert "--experience" in args
+	assert "--education" in args
+	assert "--industry" in args
+	assert "--scale" in args
+	assert "--stage" in args
+	assert "--job-type" in args
+	assert "--count" in args and "100" in args
+	assert "--format" in args and "json" in args
+	assert "-o" in args and "/tmp/out.json" in args
+	assert "--include-private" in args
+
+
+def test_build_args_export_url_only():
+	args = _build_args("boss_export", {"url": "https://www.zhipin.com/web/geek/job?query=java"})
+	assert args[0] == "export"
+	assert "--url" in args
+	assert "https://www.zhipin.com/web/geek/job?query=java" in args
+	# query 未传，不应出现裸位置参数（url 值跟在 --url 后面不算）
+	url_idx = args.index("--url")
+	positional = [a for i, a in enumerate(args) if not a.startswith("--") and a != "export" and i != url_idx + 1]
+	assert len(positional) == 0
+
+
+def test_build_args_export_format_default_omitted():
+	args = _build_args("boss_export", {"query": "前端"})
+	assert "--format" not in args
+
+
+def test_build_args_export_include_private_false_omitted():
+	args = _build_args("boss_export", {"query": "前端", "include_private": False})
+	assert "--include-private" not in args

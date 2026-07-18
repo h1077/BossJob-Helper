@@ -1,0 +1,131 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>BOSS自动投递流程图</title></head><body style="margin:0;padding:16px;background:#fff;display:flex;justify-content:center"><svg viewBox="0 0 760 1080" xmlns="http://www.w3.org/2000/svg" role="img" font-family="var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif)">
+  <title>BOSS自动投递流程图</title>
+  <desc>从配置参数、搜索收集岗位、AI筛选、用户审核确认，到逐个生成招呼语并先发图片后发招呼语的完整自动投递流程。</desc>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--border-strong, #9aa4b2)"/>
+    </marker>
+  </defs>
+
+  <!-- legend -->
+  <g font-size="13" fill="var(--text-secondary, #57606a)">
+    <circle cx="470" cy="34" r="6" fill="var(--accent, #e8830c)"/>
+    <text x="482" y="38">需要你操作</text>
+    <circle cx="592" cy="34" r="6" fill="#2f9e44"/>
+    <text x="604" y="38">匹配·投递</text>
+    <circle cx="690" cy="34" r="6" fill="#868e96"/>
+    <text x="702" y="38">跳过</text>
+  </g>
+  <text x="40" y="38" font-size="20" font-weight="700" fill="var(--text-primary, #1f2328)">BOSS 自动投递流程</text>
+
+  <!-- vertical connectors -->
+  <g stroke="var(--border-strong, #9aa4b2)" stroke-width="2" marker-end="url(#arr)" fill="none">
+    <line x1="250" y1="118" x2="250" y2="146"/>
+    <line x1="250" y1="206" x2="250" y2="234"/>
+    <line x1="250" y1="294" x2="250" y2="322"/>
+    <line x1="250" y1="382" x2="250" y2="410"/>
+    <line x1="250" y1="498" x2="250" y2="540"/>
+    <line x1="250" y1="700" x2="250" y2="728"/>
+    <line x1="250" y1="788" x2="250" y2="816"/>
+    <line x1="250" y1="876" x2="250" y2="904"/>
+    <line x1="250" y1="978" x2="250" y2="1006"/>
+  </g>
+  <!-- branch to skip -->
+  <line x1="400" y1="455" x2="556" y2="455" stroke="#868e96" stroke-width="2" marker-end="url(#arr)" fill="none"/>
+  <text x="410" y="447" font-size="12" fill="#868e96">不匹配</text>
+  <text x="258" y="528" font-size="12" fill="#2f9e44">匹配</text>
+
+  <!-- loop back arrow -->
+  <path d="M100 945 L100 757 L146 757" stroke="var(--accent, #e8830c)" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#arr)"/>
+  <text x="64" y="855" font-size="12" fill="var(--accent, #e8830c)" transform="rotate(-90 64 855)">下一个岗位</text>
+
+  <!-- helper boxes via repeated rects -->
+  <!-- 1 配置 -->
+  <g>
+    <rect x="100" y="60" width="300" height="58" rx="10" fill="var(--bg-card, #ffffff)" stroke="var(--border, #d0d7de)" stroke-width="1.5"/>
+    <text x="118" y="84" font-size="15" font-weight="700" fill="var(--text-primary, #1f2328)">① 配置参数</text>
+    <text x="118" y="104" font-size="12" fill="var(--text-secondary, #57606a)">DeepSeek Key · 简历 · 搜索条件 · 数量</text>
+  </g>
+  <!-- 2 开始 (accent) -->
+  <g>
+    <rect x="100" y="148" width="300" height="58" rx="10" fill="var(--accent-soft, #fdf0e1)" stroke="var(--accent, #e8830c)" stroke-width="1.8"/>
+    <text x="118" y="172" font-size="15" font-weight="700" fill="var(--accent-text, #9a5a00)">② 点击「开始」</text>
+    <text x="118" y="192" font-size="12" fill="var(--accent-text, #9a5a00)">启动自动流程</text>
+  </g>
+  <!-- 3 搜索 -->
+  <g>
+    <rect x="100" y="234" width="300" height="58" rx="10" fill="var(--bg-card, #ffffff)" stroke="var(--border, #d0d7de)" stroke-width="1.5"/>
+    <text x="118" y="258" font-size="15" font-weight="700" fill="var(--text-primary, #1f2328)">③ 搜索岗位</text>
+    <text x="118" y="278" font-size="12" fill="var(--text-secondary, #57606a)">按城市 · 关键词 · 行业 · 规模</text>
+  </g>
+  <!-- 4 收集 -->
+  <g>
+    <rect x="100" y="322" width="300" height="58" rx="10" fill="var(--bg-card, #ffffff)" stroke="var(--border, #d0d7de)" stroke-width="1.5"/>
+    <text x="118" y="346" font-size="15" font-weight="700" fill="var(--text-primary, #1f2328)">④ 收集岗位列表</text>
+    <text x="118" y="366" font-size="12" fill="var(--text-secondary, #57606a)">滚动抓取到设定数量</text>
+  </g>
+  <!-- 5 AI筛选 -->
+  <g>
+    <rect x="100" y="410" width="300" height="58" rx="10" fill="var(--bg-card, #ffffff)" stroke="var(--border, #d0d7de)" stroke-width="1.5"/>
+    <text x="118" y="434" font-size="15" font-weight="700" fill="var(--text-primary, #1f2328)">⑤ AI 批量筛选</text>
+    <text x="118" y="454" font-size="12" fill="var(--text-secondary, #57606a)">DeepSeek：简历 × 岗位（适中）</text>
+  </g>
+  <!-- skip box -->
+  <g>
+    <rect x="556" y="426" width="170" height="58" rx="10" fill="#f1f3f5" stroke="#868e96" stroke-width="1.5"/>
+    <text x="572" y="450" font-size="14" font-weight="700" fill="#495057">跳过</text>
+    <text x="572" y="470" font-size="11.5" fill="#868e96">超纲 · 无关 · 高级岗</text>
+  </g>
+  <!-- 6 审核 (accent, user) -->
+  <g>
+    <rect x="100" y="540" width="300" height="60" rx="10" fill="var(--accent-soft, #fdf0e1)" stroke="var(--accent, #e8830c)" stroke-width="2"/>
+    <text x="118" y="565" font-size="15" font-weight="700" fill="var(--accent-text, #9a5a00)">⑥ 审核确认（你来定）</text>
+    <text x="118" y="585" font-size="12" fill="var(--accent-text, #9a5a00)">展示匹配岗位 → 你勾选要投的</text>
+  </g>
+
+  <!-- loop group dashed -->
+  <rect x="86" y="624" width="360" height="298" rx="14" fill="none" stroke="var(--border, #d0d7de)" stroke-width="1.3" stroke-dasharray="4 4"/>
+  <text x="146" y="645" font-size="12.5" font-weight="600" fill="var(--text-secondary, #57606a)">每个岗位循环 · 随机延迟 2–4s 防反爬</text>
+
+  <!-- 7a 生成招呼语 -->
+  <g>
+    <rect x="146" y="656" width="240" height="50" rx="9" fill="var(--bg-card, #ffffff)" stroke="var(--border, #d0d7de)" stroke-width="1.5"/>
+    <text x="162" y="676" font-size="14" font-weight="700" fill="var(--text-primary, #1f2328)">⑦ 生成招呼语</text>
+    <text x="162" y="694" font-size="11.5" fill="var(--text-secondary, #57606a)">熟悉XXX、做过XXX</text>
+  </g>
+  <!-- 7b 打开对话 -->
+  <g>
+    <rect x="146" y="728" width="240" height="50" rx="9" fill="var(--bg-card, #ffffff)" stroke="var(--border, #d0d7de)" stroke-width="1.5"/>
+    <text x="162" y="748" font-size="14" font-weight="700" fill="var(--text-primary, #1f2328)">⑧ 打开对话</text>
+    <text x="162" y="766" font-size="11.5" fill="var(--text-secondary, #57606a)">点岗位 → 立即沟通 → 聊天页</text>
+  </g>
+  <!-- 7c 发送 (green) -->
+  <g>
+    <rect x="146" y="816" width="240" height="50" rx="9" fill="#ebfbee" stroke="#2f9e44" stroke-width="1.6"/>
+    <text x="162" y="836" font-size="14" font-weight="700" fill="#2b8a3e">⑨ 发送</text>
+    <text x="162" y="854" font-size="11.5" fill="#2b8a3e">先发图片 → 再发招呼语</text>
+  </g>
+  <!-- 7d 记录 -->
+  <g>
+    <rect x="146" y="904" width="240" height="50" rx="9" fill="var(--bg-card, #ffffff)" stroke="var(--border, #d0d7de)" stroke-width="1.5"/>
+    <text x="162" y="924" font-size="14" font-weight="700" fill="var(--text-primary, #1f2328)">⑩ 记录 · 去重</text>
+    <text x="162" y="942" font-size="11.5" fill="var(--text-secondary, #57606a)">成功/失败入日志，已投不再投</text>
+  </g>
+
+  <!-- 8 完成 -->
+  <g>
+    <rect x="100" y="1006" width="300" height="54" rx="10" fill="var(--bg-card, #ffffff)" stroke="var(--border, #d0d7de)" stroke-width="1.5"/>
+    <text x="118" y="1029" font-size="15" font-weight="700" fill="var(--text-primary, #1f2328)">⑪ 完成 · 统计</text>
+    <text x="118" y="1048" font-size="12" fill="var(--text-secondary, #57606a)">投递 X · 跳过 Y · 失败 Z</text>
+  </g>
+
+  <!-- side note: controls -->
+  <g>
+    <rect x="470" y="624" width="256" height="120" rx="12" fill="var(--bg-subtle, #f6f8fa)" stroke="var(--border, #d0d7de)" stroke-width="1.3"/>
+    <text x="488" y="650" font-size="13.5" font-weight="700" fill="var(--text-primary, #1f2328)">全程侧边栏</text>
+    <text x="488" y="676" font-size="12.5" fill="var(--text-secondary, #57606a)">· 实时进度日志</text>
+    <text x="488" y="700" font-size="12.5" fill="var(--text-secondary, #57606a)">· 暂停 / 继续 / 停止</text>
+    <text x="488" y="724" font-size="12.5" fill="var(--text-secondary, #57606a)">· 重置（清去重记录）</text>
+  </g>
+</svg></body></html>

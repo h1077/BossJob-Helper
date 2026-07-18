@@ -1,0 +1,632 @@
+# Changelog
+
+本项目遵循 [Semantic Versioning](https://semver.org/)。
+
+## [Unreleased]
+
+## [1.14.0] - 2026-06-25
+
+### Added
+- `boss shortlist` 新增本地标签、备注与离线对比能力：`shortlist add --tags/--note` 可在加入候选池时记录本地整理信息，`shortlist annotate` 支持增删标签和更新备注，`shortlist compare [--tag]` 仅从 SQLite 候选池读取并按标签本地过滤；MCP 同步新增 `boss_shortlist_annotate` / `boss_shortlist_compare`，默认低风险工具数 33 → 35。
+- 新增 `boss ai fit --resume <name> [--limit N]`：基于本地简历与候选池已缓存职位详情生成逐岗匹配度、能力缺口、关键词命中和建议；缺少详情的岗位只报告本地缺口并提示先执行 `boss detail`，不发起任何新增平台请求。
+- 新增 `boss ai suggest-keywords [--limit N]`：基于候选池职位分析推荐搜索关键词组合，零平台请求，纯本地 AI 辅助；MCP 同步新增 `boss_ai_suggest_keywords`。
+- 新增 `boss ai resume-optimize <name> --jd <text>|--job-id <id>`：基于目标岗位优化简历措辞（仅建议，不修改简历），支持从缓存读取职位描述，零平台请求；MCP 同步新增 `boss_ai_resume_optimize`，默认低风险工具数 35 → 37。
+
+### Changed
+- 转向 MCP-first：README / landing / docs 将 MCP（`uvx --from boss-agent-cli[mcp] boss-mcp`，33 个默认低风险 MCP 工具）列为 Agent 首选接入，移除 `npx skills add` 引导；MCP server 新增 server-level `instructions` 承载低风险与错误恢复 doctrine；独立 Agent Skill 仓库 boss-skill 退役。CLI 命令、JSON 信封与错误码不变，仍以 `boss schema` 为真源。
+- `boss search` 结果新增纯本地 `match_score`，福利筛选结果可用 `--sort score` 按匹配分降序输出；评分只使用已抓取字段与福利匹配注解，不改变翻页、详情补抓、节流或并发上限。
+- 修正 ROADMAP 多平台条目的智联状态漂移：父行此前仍写"智联为 v2.0 优先接入候选（2-3 周）"，与自身已勾选的 Week 2-3 子项（只读 + 写操作已实现）及 CHANGELOG 1.12.0「候选者侧已接通」矛盾；改为如实声明"智联候选者侧已接入"，保留拉勾/猎聘不接入与 51job backlog 结论。
+
+### Changed
+- 修正 `docs/marketing/awesome-submissions.md` 投稿模板内自相矛盾且陈旧的数字（命令数 34/33、招聘者子命令 7、MCP 工具 49/31、测试 1315、release 1.11.0），统一为当前准确值：35 顶层命令 / 9 招聘者子命令 / 33 默认低风险 MCP 工具 / 1467 测试 / release 1.13.1（其中"默认低风险 MCP 工具"取合规过滤后实际导出的 33 个，与 README.en 受测口径一致）。
+
+### Changed
+- 修正贡献者文档中指向已迁出路径 `skills/boss-agent-cli/SKILL.md` 的陈旧引用（`CONTRIBUTING.md` / `CONTRIBUTING.en.md` 添加新命令清单第 5 步改为 `docs/commands.md`、PR 模板指向独立仓库 boss-skill），消除迁出 SKILL 后遗留的误导。
+- 合并 `docs/blog/` 进 `docs/marketing/`：发布/推广文案归拢到单一目录，去除同类内容的双目录冗余。
+
+## [1.13.1] - 2026-06-16
+
+### Changed
+- `--welfare` 搜索的职位描述详情新增本地缓存（按稳定的 `job_id`/`encryptJobId` 键，TTL 24h）：重复或微调条件的 welfare 搜索复用已取描述，跳过对应 `job_card` 请求，减少平台请求量并加速重跑；不改变请求间隔与并发上限（合规姿态不变）。
+- `RequestThrottle` 改为线程安全：welfare 详情线程池并发调用下，加锁并预占下一次发送时刻，杜绝竞态导致的请求突发（突发更像爬虫，是合规风险）。
+
+### Fixed
+- `boss search` 浏览器通道冷启动削减两处无效等待（CDP 自动探测超时 3s→1s、headless 首页 networkidle 宽限 3s→0.8s），普通搜索实测 14.3s→10.0s（约 -30%），惠及全部搜索；零新增请求、不触碰风控节流。
+- `boss export` 缺少关键词时的 `INVALID_PARAM` 信封补充可执行 `recovery_action`，Agent 可程序化恢复。
+
+## [1.13.0] - 2026-06-11
+
+### Added
+- `boss platforms` 新增 `--platform` 单平台过滤，支持 `qiancheng` 与 `51job` 别名，仅读取本地能力元数据并保持未知平台的 `INVALID_PARAM` JSON 包络。
+- `boss platforms` 输出新增 `capability_status_legend`，解释 `available` / `not_supported` / `placeholder_only` / `low_risk_blocked` 的清晰语义，避免 Agent 将占位或低风险阻断误读为真实能力。
+- `boss schema` 错误码枚举补齐 login 链路 6 码（`LOGIN_TIMEOUT` / `CDP_UNAVAILABLE` / `BROWSER_KERNEL_MISSING` / `LOGIN_RISK_CONTROL` / `LOGIN_EXPIRED` / `LOGIN_CREDENTIAL_EXTRACTION_FAILED`），错误码总数 26 → 32，Agent 可经 schema 发现全部登录错误的恢复动作。
+
+### Changed
+- 补强 `boss config` 未知配置项错误路径的 stdout 单行 JSON 包络契约测试，确保 Agent 可稳定解析 `INVALID_PARAM`。
+- PR 模板补充无 `Co-authored-by` 尾注或 AI 署名行检查项，对齐贡献规范。
+- 51job/前程无忧占位适配器补齐候选者侧全量能力的稳定 `NOT_SUPPORTED` 包络，避免未启用真实适配前落入默认 `NotImplementedError`。
+- 补强 51job/前程无忧占位包络的 `capability` 明细契约，确保 Agent 可稳定区分具体未支持能力。
+- 双语 README 重构为导航型主页：命令参考与诊断排障下沉到 `docs/commands(.en).md` 与 `docs/troubleshooting(.en).md`，中英结构对齐；根目录演示资产归位 `demo/`，推广物料归位 `docs/marketing/`。
+- Agent Skill 安装路径统一为 `npx skills add can4hou6joeng4/boss-skill`：CLI 的 Agent Skill 迁至独立仓库 [boss-skill](https://github.com/can4hou6joeng4/boss-skill)（仓库本身即 Skill），与 CLI 发版节奏解耦；CLI 能力与错误码继续以 `boss schema` 自描述为真源。
+
+### Fixed
+- `boss doctor` 的 `patchright_chromium` 检查改为按 patchright 自带 `browsers.json` 声明的修订版精确校验，修复"缓存存在其他版本即报 ok 但 `boss login` 启动浏览器失败"的假绿灯。
+- `boss login` 浏览器内核缺失时不再误报 `CDP_UNAVAILABLE`：新增 `BROWSER_KERNEL_MISSING` 分类，`recovery_action` 修正为可执行的 `patchright install chromium`。
+- 隔离简历导出默认路径测试，避免每次全量测试向仓库根目录写入临时文件。
+
+### Removed（含 Breaking Change）
+- 根目录 `SKILL.md` 迁移至独立仓库 [boss-skill](https://github.com/can4hou6joeng4/boss-skill)；**此前经 `npx skills add can4hou6joeng4/boss-agent-cli` 安装的用户，请改用 `npx skills add can4hou6joeng4/boss-skill` 获取更新**。CLI 命令行为、JSON 信封与既有错误码全部向后兼容。
+- `skills/boss-resume-downloader` 招聘者简历批量同步工作流退役下线（与默认低风险合规姿态存在张力）；历史版本可在本仓库 git 历史中找到。
+
+## [1.12.0] - 2026-06-09
+
+### Added
+- MCP server 新增 `stdio` / `sse` / `http` 三种传输模式，`boss-mcp --transport http --port 8765` 与 `boss-mcp --transport sse` 可直接启动，默认仍保持 `stdio`。
+- `mcp-server/README.md` 补齐 SSE / HTTP Streaming 启动示例、默认路径和自定义路径说明。
+- MCP 新增 `boss_export`：协议服务对齐 CLI `boss export`，Agent 可直接导出搜索结果为 CSV / JSON / HTML（默认脱敏 job_id/security_id/boss_name），工具计数 31 → 32。
+- 增加前程无忧 / 51job（`qiancheng`）平台占位适配器，统一返回 `NOT_SUPPORTED`，为后续多平台能力矩阵保留低风险扩展入口。
+
+### Changed
+- 招聘者写操作收口到同一条 chat-tab Vue/CDP 链路：`boss hr reply` 现在用真实 WebSocket 帧校验发送成功，`boss hr request-resume` 不再需要 `--job-id`，`boss hr resume --exchange` 支持 `phone|wechat`。
+- MCP 新增 `boss_hr_exchange`，并同步修正 `boss_hr_request_resume` 的输入契约为仅需 `friend_id`。
+- 测试依赖 `pytest` 最低版本提升到 `9.0.3`，并同步更新锁文件，修复 Dependabot 报告的临时目录处理漏洞告警。
+- ROADMAP / README / README.en 对齐当前主线事实：`#48` 已完成，智联候选者侧登录与读写链路已接通，招聘者侧仍保持显式拒绝。
+- ROADMAP Week 4 招聘者侧能力评估落槌为「暂不接入」（接入条件 0/4 满足，保留 `RecruiterPlatform` 骨架待社区信号重启；详见 `docs/research/platforms/zhaopin-recruiter-evaluation.md`）。
+- README 与设计文档同步前程无忧占位状态，并明确 RPA / 浏览器自动化风控边界。
+
+### Fixed
+- `boss hr chat --label-id` 兼容招聘端沟通列表接口直接返回数组的响应形态，避免成功响应被误处理为 `NETWORK_ERROR`。
+- `boss interviews` 占位实现现在经 hints 如实声明能力状态（`capability=stub` + `note`），避免 Agent 把空集合占位误读为「无真实面试邀请」。
+- 改善登录错误诊断，并补强登录合规与隐私清理契约。
+
+### Tests
+- 补强低风险合规、求职流程只读、智联客户端生命周期、招聘者平台生命周期、终端渲染、统计、简历命令、联系人查找、招聘端点和招聘端低风险阻断等回归契约。
+
+### Packaging
+- 显式排除本地虚拟环境、缓存和构建产物，避免本地 `.venv*` 目录污染 sdist。
+
+## [1.11.0] - 2026-04-23
+
+### Added
+- **招聘者模式**（`--role recruiter`）— 全套招聘者 CLI 命令组：
+  - `boss hr applications` — 查看/筛选候选人投递申请
+  - `boss hr resume <id>` — 查看/请求候选人简历
+  - `boss hr chat` — 与候选人沟通列表
+  - `boss hr jobs list/online/offline` — 职位发布管理
+  - `boss hr candidates` — 候选人池
+- `BossRecruiterClient` 双通道客户端（httpx 低风险 + 浏览器高风险），复用 `AuthManager`/`BrowserSession`/`RequestThrottle`
+- `RecruiterPlatform` ABC + `BossRecruiterPlatform` 适配器，遵循现有 Platform 抽象模式
+- `api/recruiter.yaml` 招聘者端点定义（11 个 wapi 端点，Phase 0 待确认）
+- `schema` 输出新增 `current_role`、`--role` 选项、`hr` 命令组、4 个招聘者错误码
+- `CacheStore` 新增 `recruiter_applications`/`recruiter_jobs` 表
+- 测试 998→1021（+23），覆盖客户端、平台适配器、命令、端点加载
+- **ZhilianClient 内部 HTTP 客户端骨架**（Issue #140 Week 2 起步）— 新增 `src/boss_agent_cli/api/zhilian_client.py`：
+  - 类结构 + `__init__(auth_manager, *, delay, cdp_url)` 签名完全对齐 `BossClient`
+  - `close()` / `__enter__` / `__exit__` 资源生命周期支持
+  - `atexit` 自动清理未显式关闭的实例
+  - 所有 P0 方法（search_jobs / job_detail / recommend_jobs / user_info）抛 `NotImplementedError` 附 Issue #140 链接
+- **`get_platform_instance` 支持按平台分发 client**（`_platform.py`）：
+  - zhipin → BossClient
+  - zhilian → ZhilianClient
+  - 新增 `_build_client(name, ...)` helper 封装分发逻辑
+- `tests/test_zhilian_client.py` 13 条契约测试覆盖类结构 / 上下文管理器 / stub 方法 / 平台路由分发
+
+### Changed
+- **`boss batch-greet` 迁移到 Platform**（Week 1c 第 3 个命令）— 从 `BossClient` 直用切换到 `get_platform_instance(ctx, auth)`，内部 `client.search_jobs` / `client.greet` 改为 `platform.search_jobs` / `platform.greet`。删除 `greet.py` 对 `BossClient` 的直接引用。
+- mypy 严格白名单扩到 72（新增 `api.zhilian_client`）
+- README、Agent Quickstart、Codex / Claude Code 接入文档统一到 recruiter workflow + MCP / skill 导向的对外表述
+- GitHub 仓库设置补齐：自动合并、update branch、security fixes、master 分支保护增强（加入 `test (3.13)` / `typecheck` / `GitGuardian`）
+
+## [1.10.1] - 2026-04-21
+
+### Added
+- **Week 1c 100% 完成**（PR #139）— 剩余 6 个命令迁移到 Platform 抽象：`search` / `export` / `chat_summary` / `history` / `status` / `watch`。`run_search_pipeline` 接受 `client: Any` 保持兼容，直接传 Platform 实例。
+- Platform ABC 新增 `job_history(page=1)` 方法（history 命令所需）。
+- **`docs/platform-abstraction.md`** — Platform 抽象设计与迁移 SOP 文档化 Week 1 全经验，包含 ABC 方法契约、迁移模板、测试 mock 位点规则、ZhilianPlatform 自证经验。
+
+### Changed
+- 至此 `commands/` 目录下除 `_platform.py`（桥接层）外**无任何命令直接引用 BossClient**。
+- ZhilianPlatform stub 的 `NotImplementedError` 消息从"详见 Issue #129"更新为"追踪进度见 Issue #140"（PR #141）。
+
+### Fixed
+- CHANGELOG 中 [1.10.0] 的"14 命令 + search 留待独立 PR"描述，实际在本版本完成全量 20 命令迁移。
+
+## [1.10.0] - 2026-04-21
+
+### 🎯 核心里程碑：Platform 抽象架构落地（Issue #129 Week 1 全量收口）
+
+从 v1.9.1 到 v1.10.0，本版本沿着 C → A → B 三阶段路线把 Platform 抽象从"只有骨架"推到"两个平台注册 + 14 个命令走抽象"的稳定状态，为 v2.0 多平台（智联真实现）打平底盘。
+
+#### Platform ABC 完整设计（PR #131 / #132 / #133 / #136）
+- `src/boss_agent_cli/platforms/` 新子包定义 Platform ABC + 注册表 + BossPlatform adapter
+- P0 只读（`search_jobs` / `job_detail` / `recommend_jobs` / `user_info`）+ P1 写操作（`greet` / `apply`）+ P2 沟通（`friend_list`）
+- ABC 扩展 P0+：`resume_baseinfo` / `resume_expect` / `deliver_list` / `job_card` / `interview_data` / `chat_history` / `friend_label` / `exchange_contact`
+- ABC 统一 `__init__(client: Any)` 签名 + `with` 上下文管理器（`__enter__` / `__exit__` / `close()`）
+- `Platform` / `BossPlatform` / `ZhilianPlatform` / `get_platform` / `list_platforms` 导出到 `from boss_agent_cli import ...` 公共 API 面
+
+#### CLI 与注册表（PR #132 / #134）
+- `--platform` 全局 CLI 选项（默认 `zhipin`），未知平台 exit code 2
+- `~/.boss-agent/config.json` 支持 `"platform": "zhipin"` 字段持久化
+- `boss schema` 输出 `current_platform` + `supported_platforms`
+- Zhilian stub 接入注册表，`boss --platform zhilian schema` 端到端可用
+
+#### 命令层迁移（PR #133 / #135 / #136 / #137，共 14 个命令）
+| 命令 | PR | 使用的 Platform 方法 |
+|------|-----|--------------------|
+| `greet` / `apply` | #133 | `greet` / `apply` |
+| `batch-greet` | #135 | `search_jobs` + `greet` |
+| `interviews` / `detail` / `show` / `me` / `recommend` | #136 | P0 + P0+ 方法 |
+| `chat` / `chatmsg` / `mark` / `exchange` / `pipeline` / `digest` | #137 | `friend_list` / `chat_history` / `friend_label` / `exchange_contact` / `interview_data` |
+
+唯一留待独立 PR 的是 `search`，因为通过 `run_search_pipeline(client, ...)` 间接耦合 BossClient 签名需单独重构。
+
+#### ZhilianPlatform 自证（PR #134）
+- `src/boss_agent_cli/platforms/zhilian.py` — 智联招聘 stub 实现
+- 包络适配按 [zhaopin.md](docs/research/platforms/zhaopin.md) §4 完整实现（`code==200` / `data` key / 401+403+429 映射）
+- P0/P1/P2 方法抛 `NotImplementedError("Week 2 待实现")`
+- 27 条契约测试覆盖元信息 / 包络适配 / stub 行为 / CLI 集成
+
+#### Research 闭环
+- Issue #90 关闭（拉勾 + 智联 + 猎聘 API 调研全部归档到 `docs/research/platforms/`）
+
+### Tests & Quality
+- 测试 927 → **998**（+71 新增：25 platform ABC + 27 zhilian + 10 CLI + 5 context manager + 4 contract）
+- mypy 严格模块 66 → **71**（新增 4 个 platforms 子模块 + `commands._platform`）
+- mypy `--strict` 0 错误 / 80 源文件全覆盖
+- 7 PR 连合（#131/#132/#133/#134/#135/#136/#137），全部 CI 7/7 绿
+
+### Breaking Changes
+**无**。命令行为、信封格式、错误码枚举、CLI 接口全部向后兼容。Platform 抽象为纯重构，新增能力均在基类默认 `NotImplementedError` 形式下兼容老代码。
+
+## [1.9.1] - 2026-04-20
+
+### Changed
+- **🎯 mypy 严格模式全量接入达成 100%**（#124）— 本轮收尾 4 个 patchright / aiohttp 外部依赖深水区（`api/browser_client` / `auth/browser` / `bridge/client` / `bridge/daemon`），白名单 61 → **66（业务代码 100%）**
+- ROADMAP v2.0「架构演进」分区 2/3 完成（mypy 严格化 ✅、类型 stubs 导出 ✅）
+- 所有业务模块强制 `disallow_untyped_defs + disallow_any_generics + warn_return_any`
+
+### 里程碑
+从 R1（#86）到 R14（#124），14 轮连续推进，严格模块 0 → 66。CI `typecheck` job 阻塞式，新代码零容忍。
+
+## [1.9.0] - 2026-04-20
+
+### Summary
+1.8.x 系列连发 19 个 patch 完成以下核心里程碑，按 SemVer 规范 bump 到 1.9.0 标记这个里程碑节点。
+
+### 🎯 核心里程碑（从 1.8.0 到 1.9.0）
+
+#### 严格类型体系（从 0 到 81%）
+- mypy 严格类型检查模块：3 → **61** 个（81% 覆盖率）
+- CLI 命令层 **32/32 = 100%**
+- api / auth / cache 核心基础层全部进入严格保护
+- `typecheck` CI 从 non-blocking 升级为阻塞式门禁
+- Python 嵌入 API：canonical `__all__` 导出 14 个核心符号 + 16 条契约测试 + `py.typed` marker
+
+#### 智能能力扩展
+- `boss ai interview-prep` — 基于 JD 生成模拟面试题
+- `boss ai chat-coach` — 基于聊天记录给出沟通技巧建议
+- AI Provider 扩至 **8 家**：OpenAI / DeepSeek / Moonshot / OpenRouter / Qwen / Zhipu / SiliconFlow / Custom
+- 支持 Claude 4.7 / GPT-5 / DeepSeek-V3 / Qwen3 / GLM-4.6 等最新模型
+
+#### 数据输出
+- `boss digest --format md` — 邮件/飞书可直接发送的 Markdown 日报
+- `boss stats --format html` — 自包含交互式漏斗报表
+
+#### Agent 集成
+- Cursor / Windsurf 专用接入示例（MCP 推荐 + 规则文件兜底）
+- `boss schema --format openai-tools / anthropic-tools` 直出 SDK 可用格式
+- `docs/integrations/ai-models.md` 推荐模型配置表
+
+#### 工程卫生
+- 测试覆盖率 80% → **85%**
+- 测试数 802 → **927**
+- `CONTRIBUTING.en.md` 英文贡献者指南
+- research Issue 模式建立：#90（多平台适配器）+ #96（Bridge gRPC）
+
+### 🗂️ ROADMAP 进度对齐
+- v1.8.x 数据可视化分区：**3/3 ✅**
+- v1.8.x 智能能力分区：**3/3 ✅**
+- v1.8.x Agent 集成分区：**2/3**（剩 MCP HTTP Streaming，Issue #48 外部认领）
+- v2.0 架构演进：类型 stubs 导出 ✅，mypy 严格化 81%（进行中），Bridge gRPC 调研中
+
+## [1.8.18] - 2026-04-20
+
+### Changed
+- **严格类型检查覆盖 api/client 核心请求客户端**（#119）— 37 error → 0，白名单 60 → 61
+- 用 `TYPE_CHECKING` 避免 BrowserSession / AuthManager 循环导入
+- `_request` / `_browser_request` 返回值用 `cast` 修 no-any-return
+- `__exit__` 精确 `TracebackType` 签名
+- 连锁修复 `commands/exchange.py` 类型传播问题
+
+### 里程碑
+- api/ 层覆盖达 6/7（剩 api/browser_client，patchright 外部依赖最重）
+- 严格模块累计 61 / 75（81%）
+
+## [1.8.17] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 60 个模块**（#117）— 新增 `auth/manager` / `auth/qr_login` / `commands/chat_summary`
+- auth/ 层严格覆盖达到 4/5（剩 `auth/browser` 外部依赖）
+- 核心认证状态机（AuthManager）进入严格保护
+
+## [1.8.16] - 2026-04-20
+
+### Changed
+- **严格类型检查覆盖 cache/store 模块**（#115）— 白名单 56 → 57，SQLite 存储层首次严格化
+- `__enter__` / `__exit__` 补精确 `TracebackType` 类型签名
+- `get_search` 返回值用 `cast("str", ...)` 修复 `no-any-return`
+- 所有 SQL 参数/返回 dict 补泛型 `dict[str, Any]`
+
+### Progress
+- cache/ + api/ 两个基础层全部严格化完成
+- 剩余 6 个硬骨头（外部依赖 playwright / aiohttp）：api/client / api/browser_client / auth/manager / auth/browser / bridge/daemon / bridge/client
+
+## [1.8.15] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 56 个模块**（#113）— 新增 `api/models` / `api/throttle` / `api/endpoints` / `api/endpoints_loader` / `commands/stats`
+- 所有 api/* 基础模块首次全部进入严格白名单
+- SQL 聚合查询结果（`_safe_count` / `_count_since`）用 typed 中间变量避免 `no-any-return`
+
+## [1.8.14] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 51 个模块**（#111）— 新增 8 个非 CLI 模块：`ai/config` / `ai/service` / `ai/prompts` / `resume/templates` / `resume/export` / `auth/token_store` / `auth/cookie_extract` / `main`
+- `token_store.load()` / `ai/service.chat()` 使用 `cast()` 精确声明 JSON 返回类型
+- `main.cli` 重命名局部变量避免 `str → Path` 类型冲突
+- `ai/config.get_base_url` 显式 `str()` 包装解决 `warn_return_any`
+
+## [1.8.13] - 2026-04-20
+
+### Changed
+- **CLI 命令层严格类型覆盖首次达 100% (32/32)**（#109）— 新增 `ai_cmd` / `resume_cmd` 两个大模块，白名单 41 → 43
+- `cache/store.CacheStore.close` 补 `-> None` 类型注解（解锁 resume_cmd 对其的调用）
+- `ai_cmd._call_ai` 使用 cast 精确声明 JSON 解析结果类型
+- 22 个 AI + Resume 子命令签名升级为完整类型化
+
+### 里程碑
+- 从 R3 `handle_auth_errors` 装饰器解锁开始，6 轮推进（#99→#109）
+- 每轮都不堆积模块，而是修系统级障碍带一批模块严格化
+
+## [1.8.12] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 41 个模块**（#107）— 新增 `schema` / `chat_export` / `config_cmd`
+- 本轮单日三连发（#103 → #105 → #107），严格类型模块从 24 → 41，**净增 17 个**
+
+## [1.8.11] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 38 个模块**（#105）— 新增核心 CLI 命令 6 个：`search` / `greet` / `chat` / `detail` / `doctor` / `export`
+- CLI 命令层严格覆盖率从 66% (21/32) 提升至 **84% (27/32)**
+- `detail._detail_via_httpx` / `_detail_via_browser` 补全 BossClient / Path 类型
+- `doctor.add_check` 的 `hint` 参数支持 `str | None`
+
+## [1.8.10] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 32 个模块**（#103）— 新增 8 个 CLI 命令：`me` / `show` / `mark` / `clean` / `shortlist` / `chat_snapshot` / `preset` / `watch`
+- CLI 命令层严格覆盖率从 40% (13/32) 提升至 **66% (21/32)**
+- `preset` / `watch` 的参数构造器给 10 个参数逐个精确标注 `str | None`
+- `chat_snapshot` 使用 `boss_agent_cli.output.Logger` 替代裸 `logger` 参数
+
+## [1.8.9] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 24 个模块**（#101）— 本轮新增 CLI 命令层 7 个：`apply` / `chatmsg` / `digest` / `exchange` / `interviews` / `pipeline` / `status`
+- 所有 7 个命令签名升级为 `def cmd(ctx: click.Context, ...) -> None`
+- `pipeline._collect_pipeline_items` 返回类型精确标注为 `list[dict[str, Any]]`
+
+## [1.8.8] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 17 个模块**（#99）— 首次覆盖 CLI 命令层：`commands/cities` / `commands/chat_utils` / `commands/history` / `commands/login` / `commands/logout` / `commands/recommend`
+- `display.handle_auth_errors` 装饰器补全类型注解，解锁下游 11+ 个命令的严格化路径
+- 所有目标命令的 `def cmd(ctx, ...)` 签名升级为 `def cmd(ctx: click.Context, ...) -> None`
+
+## [1.8.7] - 2026-04-20
+
+### Changed
+- **严格类型检查白名单扩至 11 个模块**（#97）— 新增 `chat_summary` / `search_filters` / `resume/models` / `resume/store`，所有这些模块现在强制 `disallow_untyped_defs` + `disallow_any_generics` + `warn_return_any`
+- 所有白名单模块的裸 `dict` / `list` 补上泛型参数
+- `search_filters._check_details_parallel` 修正 `welfare_conditions` 参数类型为 `list[tuple[str, list[str]]]`
+
+### Added
+- Issue #96「Bridge 协议 HTTP/WS → gRPC 升级调研」— 按多平台适配器（#90）的调研先行模式，为 v2.0 架构演进剩余一项锁定调研清单
+
+## [1.8.6] - 2026-04-20
+
+### Added
+- **包级公开接口**（#94）— `boss_agent_cli.__all__` 导出 14 个核心符号（AuthManager / BossClient / CacheStore / JobItem / JobDetail / AIService / ResumeData 等），下游项目可直接 `from boss_agent_cli import X` 使用，不再需要深路径 import
+- `tests/test_public_api.py` 16 条契约测试守护 public API（identity 一致性 / 异常继承 / SemVer 版本格式 / py.typed marker 存在）
+- `README.md` 新增「方式三：Python 直接嵌入」章节，给出 canonical 使用示例
+
+### Changed
+- `src/boss_agent_cli/__init__.py` 补完整 docstring 说明包的公开 API 契约
+
+## [1.8.5] - 2026-04-20
+
+### Added
+- `research` issue label + Issue #90「多平台适配器 API 调研：拉勾 / 智联 / 猎聘」— 对齐顶层设计：API 调研优先、实现 PR 必须基于调研报告
+- ROADMAP「生态扩展」条目补入调研 issue 引用（#91）
+
+### Changed
+- 严格类型检查白名单从 **3 个扩到 7 个**（#92）— 新增 `digest` / `match_score` / `pipeline_state` / `index_cache` 四个 100% 覆盖率纯函数模块
+- 启用的严格选项：`disallow_untyped_defs` + `disallow_any_generics` + `warn_return_any`
+- 所有白名单模块的裸 `dict` / `list` 均补上泛型参数
+
+## [1.8.4] - 2026-04-20
+
+### Changed
+- **类型检查门禁升级为阻塞式**（#88）— mypy 12 baseline errors 全部清零，CI `typecheck` job 去掉 `continue-on-error`，新代码必须零 mypy 错误才能合入 master
+
+### Fixed
+- `api/browser_client.py` × 8：patchright 类属性加 `Any` 类型注解
+- `auth/manager.py`：登录方法 `token` 变量显式声明为 `dict | None`
+- `bridge/daemon.py`：Popen `kwargs` 显式声明为 `dict[str, Any]`
+- `commands/chat_utils.py`：`RELATION_LABELS` key 类型放宽为 `object`
+- `resume/models.py`：for 循环变量 `item` 改名 `ji_item` 避免类型混淆
+
+## [1.8.3] - 2026-04-20
+
+### Added
+- 英文版贡献者指南 `CONTRIBUTING.en.md`（#84） — 对齐中文版全量章节，并明确说明 commit message 纯中文描述约定
+- 静态类型检查接入（#86）— `mypy` 依赖 + 宽松基线配置 + `typecheck` CI 非阻塞 job；`output` / `config` / `hooks` 三个纯工具模块启用严格模式（`disallow_untyped_defs`）
+- `docs/integrations/ai-models.md` 作为 ROADMAP v2.0 社区建设的英文贡献者入口被纳入索引
+
+### Changed
+- `CONTRIBUTING.md` 首行补 `CONTRIBUTING.en.md` 链接
+- `CONTRIBUTING` 双语版增加 mypy 本地跑法提示
+- `output.py` / `hooks.py` 补齐类型注解（`emit_success` / `emit_error` / `Logger.*` / `SyncHook.__init__` / `BailHook.__init__`）
+
+### 测试覆盖率二次冲刺（#85）
+- `commands/logout.py` 86% → 100%
+- `commands/show.py` 85% → ~98%
+- `commands/mark.py` 86% → ~95%
+- `commands/me.py` 88% → 100%
+- `match_score.py` 93% → 100%
+- `pipeline_state.py` 93% → 100%
+- 全量测试 **893 → 911**（+18）
+
+### Fixed
+- （无 bug 修复）
+
+## [1.8.2] - 2026-04-20
+
+### Added
+- AI Provider 扩展 4 家，覆盖主流国内外聚合入口：
+  - `openrouter` — Anthropic Claude 4.7 / OpenAI GPT-5 / Google Gemini 等全家桶聚合
+  - `qwen` — 通义千问 DashScope OpenAI 兼容入口
+  - `zhipu` — 智谱 GLM-4.6 开放平台
+  - `siliconflow` — 硅基流动聚合推理
+- 新建 `docs/integrations/ai-models.md` 推荐模型与入口表，给 Claude 4.7 / GPT-5 / DeepSeek-V3 / Qwen3 / GLM-4.6 等最新模型最短接入路径
+
+### Changed
+- `ai config` 命令 `--provider` / `--model` 帮助文案同步最新 provider 列表
+- `docs/agent-hosts.md` 索引补入 AI 模型入口文档链接
+- `README.md` AI 命令表下方加推荐模型引用
+
+### Fixed
+- （无 bug 修复）
+
+### 测试覆盖率冲刺（独立主题）
+- `commands/display.py` 30% → **100%**（+21 测试）
+- `commands/status.py` 73% → **95%**（+2 测试）
+- `commands/ai_cmd.py` 77% → **84%**（+30 测试，剩余是 ctx.exit 后的防御性死代码不做硬刷）
+- `tests/test_ai_config.py` 新增 4 条 provider base_url 断言
+- 整体测试 **835 → 893**（+58），覆盖率 **85% → 88%**
+
+## [1.8.1] - 2026-04-19
+
+### Added
+- `boss digest --format md [-o <path>]` — 每日摘要 Markdown 输出，可直接贴邮件/飞书发送；核心指标表 + 新匹配 / 待跟进 / 面试三段落，空数据写「暂无」占位
+- `docs/integrations/cursor.md` — Cursor Composer Agent 接入示例（MCP 推荐 + `.cursor/rules` 兜底）
+- `docs/integrations/windsurf.md` — Windsurf Cascade Agent 接入示例（MCP 推荐 + `.windsurfrules` 兜底）
+- `docs/agent-hosts.md` 宿主索引表补入 Cursor / Windsurf 两条
+- `.gitignore` 精准忽略本地专属的社区发帖草稿（`docs/blog/linuxdo-promo.md`）
+- 协议服务 `boss_digest` 工具新增 `format` / `output` 参数
+- `tests/test_digest_command.py` 新增 5 条 md 输出路径测试、`tests/test_mcp_server.py` 新增 2 条 `_build_args` 测试（828 → 835，+7）
+
+### Changed
+- ROADMAP v1.8.x「数据可视化」和「Agent 集成」分区各勾选一项完成
+- `digest` 命令描述同步更新说明支持 JSON / Markdown 两种输出
+- `tests/test_agent_host_examples.py` meta 测试覆盖新增两份集成示例
+
+### Fixed
+- （无 bug 修复）
+
+## [1.8.0] - 2026-04-19
+
+### Added
+- `boss ai interview-prep <jd_text>` — 基于目标职位生成模拟面试题与准备建议，支持 `--resume` 参考简历、`--count` 控制题量；返回分类（技术/行为/情景）、参考回答框架、考察点、难度、高优先级准备项
+- `boss ai chat-coach <chat_text>` — 基于聊天记录诊断沟通状态并给出下一步建议，支持 `--resume`、`--style` 偏好；输出阶段判断、招聘者意图、优劣势、可直发消息模板、需避免的雷区
+- 协议服务新增 `boss_ai_interview_prep` / `boss_ai_chat_coach` 两个工具（41 → 43）
+- Prompt 模板新增 `INTERVIEW_PREP_PROMPT` / `CHAT_COACH_PROMPT`
+
+### Changed
+- ROADMAP v1.8.x 智能能力分区两项勾选完成
+- README / capability-matrix / SKILL 同步新增两条 AI 能力
+- schema 中 `ai` 命令子命令列表由 6 → 8
+
+### Fixed
+- （无 bug 修复）
+
+## [1.7.2] - 2026-04-19
+
+### Added
+- `docs/integrations/python-sdk.md` — Python SDK 直调集成样例（OpenAI + Anthropic 两套 ~150 行可运行代码），Agent 宿主索引表同步补入口
+- README 中英文版均链接认可 LINUX DO 社区
+
+### Changed
+- 测试覆盖率大幅提升：总体 **80% → 84%**（+4 点）
+  - `api/client.py` 63% → **97%**（+37 测试）
+  - `commands/greet.py` 65% → **97%**（+8 测试）
+  - `commands/export.py` 47% → **98%**（+13 测试）
+  - `auth/manager.py` 74% → **96%**（+14 测试）
+  - `auth/token_store.py` 81% → **100%**（+14 测试）
+  - `commands/login.py` 83% → **100%**（+6 测试）
+- 总测试数 **710 → 802**（+92）
+
+### Fixed
+- 移除误跟踪的 `.coverage` artifact 并扩展 `.gitignore` 忽略覆盖率文件
+- Dependabot 批量升级 5 个 GitHub Actions 版本（`checkout`/`upload-pages-artifact`/`configure-pages`/`deploy-pages`/`gh-release`）
+
+## [1.7.1] - 2026-04-17
+
+### Added
+- `boss schema --format openai-tools` 和 `--format anthropic-tools` — 一键导出 OpenAI Functions / Claude Tool Use 兼容的 JSON Schema，免手动转换即可喂给 SDK
+- `boss stats --format html -o <path>` 输出自包含交互式漏斗报表（纯 CSS + SVG，无外部 CDN）
+- 协议服务文档补齐传输层章节（stdio 当前支持 / SSE 规划中）和贡献指引
+- Issue / PR 模板全面升级：bug_report 强制 doctor 输出和版本号，feature_request 新增贡献意愿字段，新增 documentation 专用模板，PR 模板新增 Closes 关联和 Breaking Change 声明
+- 英文版说明补齐 Troubleshooting 章节（诊断清单 / 登录 / 浏览器 / 搜索 / 错误码 / 术语表），对齐中文版
+- Codecov 覆盖率追踪接入，基线 80%，每次 PR 自动上报
+- 开发容器（`.devcontainer/devcontainer.json`）支持 GitHub Codespaces 一键启动
+- `ROADMAP.md` + 4 个 Issue（含 2 个 good-first-issue）招募外部贡献者
+- 本地提交质量门禁 `.pre-commit-config.yaml`（ruff + 通用 hooks）
+
+### Changed
+- CI 支持 `workflow_dispatch` 手动触发
+- 协议服务 `awesome-mcp-servers` 投稿材料和多语言投稿模板整理
+
+### Fixed
+- 清理 `tests/test_qr_login.py` 未使用 import，修复 ruff lint 失败
+
+## [1.7.0] - 2026-04-17
+
+### Added
+- 新增 `boss ai reply` 命令 — 基于招聘者消息生成 2-3 条回复草稿，支持简历参考和语气偏好
+- 新增 `boss stats` 命令 — 投递转化漏斗统计，只读聚合打招呼/投递/候选池/监控数据
+- 协议服务扩展：新增 18 个工具覆盖简历管理、智能能力、状态管理增删（23→41）
+- 元测试：main.py 注册命令与 SCHEMA_DATA 对齐的防漂移校验
+- 本地提交质量门禁：新增 `.pre-commit-config.yaml`（ruff check + 通用 hooks）
+- 新增英文版 README（`README.en.md`），README 首屏加入语言切换
+- 能力矩阵文档补齐简历管理、智能能力、数据洞察三大分区
+- README 加入 CHANGELOG 导航入口
+
+### Changed
+- 能力矩阵命令总数对齐到当前状态
+
+### Fixed
+- 清理 `tests/test_qr_login.py` 未使用 import，修复 ruff lint 失败
+
+## [1.6.0] - 2026-04-14
+
+### Added
+- 新增 `resume` 命令组 — 本地简历管理，支持初始化、列表、查看、编辑、删除、导出、导入、克隆、版本比对
+- 新增 `ai` 命令组 — 智能简历优化，支持配置、JD 分析、润色、优化、建议五个子命令，覆盖 OpenAI/Claude/Gemini/通义千问/DeepSeek 多模型
+- 简历数据模型、本地存储、模板渲染、多格式导出（HTML/Markdown/PDF/DOCX）
+- AI 服务模块：多模型配置、密钥加密存储、提示词模板、对话补全
+- 模型上下文协议服务从十一个工具扩展至二十三个，覆盖全部命令
+
+### Changed
+- 协议服务文档按功能分类并补齐全部工具说明
+- 能力矩阵补齐配置管理和缓存清理命令
+
+## [1.5.0] - 2026-04-14
+
+### Added
+- 新增 `clean` 命令 — 清理过期缓存和临时文件，支持预览和全量模式
+- 模型上下文协议服务新增二十九个测试覆盖工具定义和参数构建
+
+### Changed
+- 收窄八处网络和解析模块的异常捕获为具体类型
+- 统一调试协议默认地址为单一常量引用
+
+## [1.4.0] - 2026-04-14
+
+### Added
+- 新增 `config` 命令组 — 查看、设置、重置配置项，支持类型自动推断
+- 新增类型标记文件，下游项目可获得类型检查支持
+- 新增版本查询选项，终端输入即可查看当前版本
+- 缓存模块新增保存搜索、增量监控、投递记录、候选池四表扩展测试
+- 浏览器桥接模块新增协议结构和客户端重试逻辑测试
+- 测试数量从三百六十八增至四百二十七
+
+### Changed
+- 安装指引统一覆盖三种安装方式
+- 能力矩阵文档按功能分类并补齐全部命令
+- 清理仓库内部开发计划文档
+
+## [1.3.0] - 2026-04-13
+
+### Added
+- 新增 `watch` 命令组 — 保存搜索条件并执行增量监控，自动标出新职位
+- 新增 `pipeline` 命令 — 汇总沟通和面试数据，构建求职流水线全景视图
+- 新增 `follow-up` 命令 — 筛选超时未推进的联系人，生成跟进提醒
+- 新增 `apply` 命令 — 发起投递/立即沟通动作，幂等设计防止重复投递
+- 新增 `shortlist` 命令组 — 管理职位候选池，支持添加/列表/移除
+- 新增 `chat-summary` 命令 — 对沟通消息生成结构化摘要
+- 新增 `preset` 命令组 — 管理可复用搜索预设，保存常用参数组合一键复用
+- 新增 `digest` 命令 — 每日摘要，综合流水线、跟进、统计信息
+- 搜索结果新增匹配分和匹配原因输出
+- 快速入门文档和冒烟测试框架
+- 多宿主集成示例文档（Claude Code / Codex / Shell Agent）
+- 接口合约和错误码一致性测试
+- 高风险链路测试覆盖补齐
+
+### Changed
+- 开源仓库元信息优化，补充英文摘要和变更记录
+
+### Fixed
+- 检测风控状态码并输出明确错误标识（此前静默失败）
+- 调试协议模式复用用户上下文，规避自动化检测
+- 扩展优先复用已有招聘页而非空白自动化页
+- 职位详情快速通道失败时自动降级到浏览器通道（此前误报"职位不存在"）
+- 搜索分页边界条件修正
+
+## [1.2.0] - 2026-04-09
+
+### Added
+- CI 新增 ruff lint 质量门禁步骤
+- CI 矩阵新增 Python 3.13 支持
+- 新增 bridge/display/endpoints_loader/index_cache 四模块测试（123→182 用例）
+- SKILL.md 命令速查表补全至 19 个命令
+
+### Changed
+- chat.py 拆分为 chat_export/chat_snapshot/chat_utils 三子模块（655→227 行）
+- 浏览器超时从裸数字提取为命名常量
+- search_filters 异常捕获从 Exception 收窄为具体类型
+- client.py 根据运行平台动态设置请求头
+- daemon.py 文件句柄改为 with ���句防泄漏
+- 安装命令改为从 GitHub 源码安装
+
+### Fixed
+- CLAUDE.md 缩进规范、模块索引、技术栈、架构图与代码对齐
+- README 配置文档补全 cdp_url/export_dir 字段
+- .gitignore 排除 .trellis/.agents 目录
+
+## [1.1.0] - 2026-04-03
+
+### Added
+- 新增 `boss me` 命令 — 获取当前登录用户的基本信息、简历、求职期望、投递记录
+- 跨平台 Agent Skill 体系 — 支持 Codex / Claude Code / Gemini CLI / OpenCode / OpenClaw
+- `.agents/skills/` symlink 供 Codex / OpenCode 发现 skill
+- pyproject.toml 补全 authors、keywords、classifiers、urls 元数据
+
+### Fixed
+- 修复 `boss me` 命令 AuthManager 路径拼接和 emit_error 参数问题
+- 消息模板标准化 — hints 补全 + 参数引用修正 + recovery_action 统一
+
+### Changed
+- SKILL.md 重构为 AgentSkills 标准格式
+- skill 目录从 `skills/SKILL.md` 迁移到 `skills/boss-agent-cli/SKILL.md`
+
+## [0.1.0] - 2026-03-20
+
+### Added
+- 核心 CLI 框架（Click）+ JSON 信封输出协议
+- `boss login` — patchright 反检测浏览器扫码登录 + 本地浏览器 Cookie 自动提取
+- `boss status` — 检查登录态
+- `boss search` — 职位搜索（支持城市 / 薪资 / 经验 / 学历 / 规模筛选）
+- `boss search --welfare` — 福利精准筛选（双休、五险一金等，逗号分隔 AND 逻辑，自动翻页）
+- `boss recommend` — 基于简历的个性化职位推荐
+- `boss detail` — 职位完整详情（描述、地址、招聘者信息）
+- `boss greet` — 向招聘者打招呼
+- `boss batch-greet` — 批量打招呼（上限 10，支持 dry-run 预览）
+- `boss export` — 导出搜索结果为 CSV / JSON
+- `boss cities` — 列出 40 个支持城市
+- `boss schema` — 工具能力自描述 JSON（Agent 调用入口）
+- Token 加密存储（Fernet + PBKDF2 机器绑定密钥）
+- SQLite WAL 缓存（搜索历史 100 条上限 + 已打招呼记录）
+- 高斯分布请求延迟 + 指数退避 403 重试
+- GitHub Actions CI（多 OS + 多 Python 版本）

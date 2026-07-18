@@ -1,0 +1,208 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .editorial-serif {
+      --ink: #202124;
+      --muted: #62676f;
+      --rule: #d9dde3;
+      --accent: var(--theme-color);
+      counter-reset: resume-section;
+      color: var(--ink);
+      background: {{ config.bg_color or '#ffffff' }};
+    }
+    .editorial-serif .resume-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 30mm;
+      gap: 6mm 8mm;
+      padding: 0 0 7mm;
+      margin-bottom: 6mm;
+      border: 0;
+      border-bottom: 2px solid var(--ink);
+      position: relative;
+    }
+    .editorial-serif .resume-header::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: -5mm;
+      width: 28mm;
+      height: 1.6mm;
+      background: var(--accent);
+    }
+    .editorial-serif .resume-header-main {
+      display: block;
+      width: auto;
+    }
+    .editorial-serif .resume-name {
+      margin: 0 0 2mm;
+      color: var(--ink);
+      font-family: {{ (config.font_family or 'vf-serif')|css_font_family }};
+      font-size: calc(var(--name-font-size) + 12px);
+      font-weight: 700;
+      line-height: 1.04;
+    }
+    .editorial-serif .resume-position {
+      color: var(--accent);
+      font-size: calc(var(--title-font-size) + 1px);
+      font-weight: 700;
+      margin-bottom: 3mm;
+    }
+    .editorial-serif .resume-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5mm 5mm;
+      margin: 0 0 1.2mm;
+      color: var(--muted);
+      font-size: 0.92em;
+      line-height: 1.55;
+    }
+    .editorial-serif .resume-meta span {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      margin: 0;
+      gap: 1mm;
+      white-space: nowrap;
+    }
+    .editorial-serif .resume-avatar-cell {
+      display: block;
+      width: 25mm;
+      padding: 0;
+      justify-self: end;
+      text-align: right;
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .editorial-serif .resume-avatar {
+      width: 24mm;
+      height: 31mm;
+      margin: 0;
+      border-radius: 0;
+      border: 1px solid var(--rule);
+      object-fit: cover;
+    }
+    .editorial-serif .resume-avatar-left {
+      grid-template-columns: 30mm minmax(0, 1fr);
+    }
+    .editorial-serif .resume-avatar-left .resume-avatar-cell {
+      grid-column: 1;
+      grid-row: 1;
+      justify-self: start;
+      align-self: center;
+    }
+    .editorial-serif .resume-avatar-left .resume-header-main {
+      grid-column: 2;
+      grid-row: 1;
+      align-self: center;
+    }
+    .editorial-serif .resume-avatar-center {
+      display: block;
+      text-align: center;
+    }
+    .editorial-serif .resume-avatar-center .resume-avatar-cell {
+      width: auto;
+      margin: 0 0 5mm;
+      text-align: center;
+      justify-self: center;
+      grid-column: auto;
+      grid-row: auto;
+    }
+    .editorial-serif .resume-avatar-center .resume-header-main {
+      text-align: center;
+    }
+    .editorial-serif .resume-avatar-center .resume-meta {
+      justify-content: center;
+    }
+    .editorial-serif .resume-avatar-center::before {
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    .editorial-serif .section {
+      counter-increment: resume-section;
+      display: grid;
+      grid-template-columns: 22mm minmax(0, 1fr);
+      column-gap: 7mm;
+      row-gap: 2mm;
+      margin: 0 0 calc(var(--section-margin-bottom) + 6px);
+      padding-bottom: calc(var(--section-margin-bottom) + 1px);
+      border-bottom: 1px solid #eef0f3;
+    }
+    .editorial-serif .section:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+    .editorial-serif .section-title {
+      margin: 0;
+      padding: 0;
+      color: var(--ink);
+      border: 0;
+      font-size: calc(var(--title-font-size) - 1px);
+      font-weight: 700;
+      line-height: 1.25;
+    }
+    .editorial-serif .section-title::before {
+      content: counter(resume-section, decimal-leading-zero);
+      display: block;
+      margin-bottom: 2mm;
+      color: var(--accent);
+      font-family: {{ config.font_family|css_font_family }};
+      font-size: 0.9em;
+      font-weight: 700;
+    }
+    .editorial-serif .section > :not(.section-title) {
+      grid-column: 2;
+      min-width: 0;
+    }
+    .editorial-serif .item-head {
+      color: var(--ink);
+      font-weight: 700;
+      align-items: baseline;
+      border-bottom: 1px dotted #cfd4dc;
+      padding-bottom: 1mm;
+    }
+    .editorial-serif .item-head > span {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.92em;
+    }
+    .editorial-serif .inline-meta,
+    .editorial-serif .item-sub { color: var(--muted); }
+    .editorial-serif .tag-row span {
+      border-radius: 0;
+      border: 1px solid #d9dde3;
+      background: #fafafa;
+      color: var(--ink);
+      padding: 1px 7px;
+    }
+    .editorial-serif .rich-text-body blockquote {
+      border-left: 2px solid var(--accent);
+      color: var(--muted);
+    }
+    .editorial-serif .experience-item {
+      margin-bottom: 7px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .editorial-serif .section-awards .experience-item {
+      margin-bottom: 3px;
+    }
+    .editorial-serif .section-awards .item-head {
+      padding-bottom: 2px;
+    }
+  </style>
+</head>
+<body>
+  <main class="resume-page editorial-serif">
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    {% for section in resume._sections %}
+      {{ render_section(section, resume) }}
+    {% endfor %}
+  </main>
+</body>
+</html>

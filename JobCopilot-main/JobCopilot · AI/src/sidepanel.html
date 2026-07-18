@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>BOSS自动投递</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="header"><h1>BOSS 自动投递</h1></div>
+
+  <!-- 配置 -->
+  <section class="card">
+    <div class="card-h" data-toggle="cfgBody"><span>① 配置</span><span class="chev">▾</span></div>
+    <div class="card-b" id="cfgBody">
+      <label>DeepSeek API Key</label>
+      <input type="password" id="dsKey" placeholder="sk- 开头">
+
+      <label>简历图片（投递时发给HR）</label>
+      <input type="file" id="resumeImg" accept="image/*">
+      <div id="imgPrev"></div>
+
+      <label>简历文字（必填，用于AI筛选 + 生成招呼语）</label>
+      <textarea id="resumeText" rows="5" placeholder="粘贴你的简历：技能、项目经历、教育背景、实习经历等，越详细招呼语越精准"></textarea>
+
+      <label>岗位关键词</label>
+      <input type="text" id="keyword" placeholder="如：数据分析 / AI应用">
+
+      <label>城市</label>
+      <input type="text" id="city" placeholder="如：沈阳 / 北京">
+
+      <label>收集岗位数量</label>
+      <input type="number" id="count" value="20" min="1" max="200">
+
+      <button class="btn-primary" id="saveCfg">保存配置</button>
+      <span id="saved" class="ok-msg" style="display:none">✓ 已保存</span>
+    </div>
+  </section>
+
+  <!-- 运行 -->
+  <section class="card">
+    <div class="card-h"><span>② 运行</span></div>
+    <div class="card-b">
+      <button class="btn-go" id="btnCollect">开始收集 + AI筛选</button>
+      <div class="status-row">
+        <span id="phaseText">未开始</span>
+        <span id="progText"></span>
+      </div>
+      <div class="ctrl">
+        <button id="btnPause" disabled>暂停</button>
+        <button id="btnStop" disabled>停止</button>
+        <button id="btnReset">重置</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 审核 -->
+  <section class="card" id="reviewCard" style="display:none">
+    <div class="card-h"><span>③ 审核确认</span><span id="reviewCount"></span></div>
+    <div class="card-b">
+      <div class="review-tools">
+        <label class="mini"><input type="checkbox" id="selAll" checked> 全选匹配</label>
+        <button class="btn-go" id="btnDeliver">投递选中</button>
+      </div>
+      <div id="reviewList"></div>
+    </div>
+  </section>
+
+  <!-- 日志 -->
+  <section class="card">
+    <div class="card-h"><span>日志</span><button class="mini-btn" id="clearLog">清空</button></div>
+    <div class="log" id="log"></div>
+  </section>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

@@ -1,0 +1,618 @@
+"""Reusable search pipeline — list-page prefiltering + welfare detail fallback.
+
+Centralizes filtering logic shared by search, batch-greet, and export commands.
+"""
+
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
+from boss_agent_cli.api import endpoints
+from boss_agent_cli.api.models import JobItem
+
+# ── Ordinal lookups for threshold comparisons ───────────────────────
+
+_EXPERIENCE_ORDER: dict[str, int] = {
+	"应届": 0,
+	"1年以内": 1,
+	"1-3年": 2,
+	"3-5年": 3,
+	"5-10年": 4,
+	"10年以上": 5,
+}
+
+_EDUCATION_ORDER: dict[str, int] = {
+	"初中及以下": 0,
+	"中专/中技": 1,
+	"高中": 2,
+	"大专": 3,
+	"本科": 4,
+	"硕士": 5,
+	"博士": 6,
+}
+
+# ── Welfare keywords ────────────────────────────────────────────────
+
+WELFARE_KEYWORDS: dict[str, list[str]] = {
+	"双休": ["双休", "周末双休", "五天工作制", "5天工作制"],
+	"五险一金": ["五险一金"],
+	"五险": ["五险一金", "五险"],
+	"年终奖": ["年终奖"],
+	"带薪年假": ["带薪年假"],
+	"餐补": ["餐补", "包吃", "免费午餐"],
+	"住房补贴": ["住房补贴", "住房补助"],
+	"定期体检": ["定期体检"],
+	"股票期权": ["股票期权"],
+	"加班补助": ["加班补助"],
+}
+
+_MAX_FILTER_PAGES = 5
+_WELFARE_WORKERS = 3
+
+_BOSS_SEARCH_HOSTS = {"www.zhipin.com", "zhipin.com"}
+_BOSS_SEARCH_PATHS = {"/web/geek/job", "/web/geek/jobs"}
+_URL_PARAM_ALIASES = {
+	"query": "query",
+	"city": "city",
+	"salary": "salary",
+	"experience": "experience",
+	"degree": "degree",
+	"education": "degree",
+	"industry": "industry",
+	"scale": "scale",
+	"stage": "stage",
+	"jobType": "jobType",
+	"job_type": "jobType",
+}
+_URL_SEARCH_PARAM_KEYS = {
+	"city",
+	"salary",
+	"experience",
+	"degree",
+	"industry",
+	"scale",
+	"stage",
+	"jobType",
+}
+
+
+class SearchUrlParseError(ValueError):
+	"""Raised when a user-supplied BOSS search URL cannot be safely used."""
+
+
+@dataclass(frozen=True)
+class ParsedSearchUrl:
+	query: str
+	params: dict[str, str]
+	page: int | None = None
+
+
+def _first_query_value(parsed: dict[str, list[str]], key: str) -> str:
+	values = parsed.get(key, [])
+	for value in values:
+		candidate = value.strip()
+		if candidate:
+			return candidate
+	return ""
+
+
+def parse_boss_search_url(search_url: str) -> ParsedSearchUrl:
+	"""Parse a user-copied BOSS search URL into whitelisted API search params."""
+	parts = urlparse(search_url)
+	if parts.scheme not in {"http", "https"} or parts.netloc not in _BOSS_SEARCH_HOSTS:
+		raise SearchUrlParseError("仅支持 zhipin.com 的职位搜索 URL")
+	if parts.path.rstrip("/") not in _BOSS_SEARCH_PATHS:
+		raise SearchUrlParseError("仅支持 BOSS 直聘求职者职位搜索页 URL")
+
+	query_values = parse_qs(parts.query, keep_blank_values=False)
+	params: dict[str, str] = {}
+	for source_key, target_key in _URL_PARAM_ALIASES.items():
+		value = _first_query_value(query_values, source_key)
+		if value:
+			params[target_key] = value
+
+	query = params.pop("query", "")
+	page = None
+	if raw_page := _first_query_value(query_values, "page"):
+		try:
+			page = max(1, int(raw_page))
+		except ValueError as exc:
+			raise SearchUrlParseError("URL 中的 page 参数不是有效数字") from exc
+
+	if not query and not any(key in params for key in _URL_SEARCH_PARAM_KEYS):
+		raise SearchUrlParseError("URL 中没有可用的搜索参数")
+	return ParsedSearchUrl(query=query, params=params, page=page)
+
+
+def _split_multi_value(value: str) -> list[str]:
+	return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def resolve_lookup_codes(value: str | None, lookup: dict[str, str], label: str) -> str | None:
+	"""Resolve comma-separated display labels or raw numeric codes into API codes."""
+	if not value:
+		return None
+	codes: list[str] = []
+	for part in _split_multi_value(value):
+		if part.isdigit():
+			codes.append(part)
+			continue
+		code = lookup.get(part)
+		if code is None:
+			raise ValueError(f"未知{label}: {part}")
+		codes.append(code)
+	return ",".join(codes) if codes else None
+
+
+def resolve_search_code_params(
+	*,
+	salary: str | None = None,
+	experience: str | None = None,
+	education: str | None = None,
+	industry: str | None = None,
+	scale: str | None = None,
+	stage: str | None = None,
+	job_type: str | None = None,
+) -> dict[str, str]:
+	"""Resolve user-facing search filters into BOSS API parameter codes."""
+	params: dict[str, str] = {}
+	if code := resolve_lookup_codes(salary, endpoints.SALARY_CODES, "薪资范围"):
+		params["salary"] = code
+	if code := resolve_lookup_codes(experience, endpoints.EXPERIENCE_CODES, "经验要求"):
+		params["experience"] = code
+	if code := resolve_lookup_codes(education, endpoints.EDUCATION_CODES, "学历要求"):
+		params["degree"] = code
+	if code := resolve_lookup_codes(industry, endpoints.INDUSTRY_CODES, "行业类型"):
+		params["industry"] = code
+	if code := resolve_lookup_codes(scale, endpoints.SCALE_CODES, "公司规模"):
+		params["scale"] = code
+	if code := resolve_lookup_codes(stage, endpoints.STAGE_CODES, "融资阶段"):
+		params["stage"] = code
+	if code := resolve_lookup_codes(job_type, endpoints.JOB_TYPE_CODES, "职位类型"):
+		params["jobType"] = code
+	return params
+
+
+# ── Salary parsing ──────────────────────────────────────────────────
+
+_SALARY_RE = re.compile(r"(\d+)(?:\s*[-~]\s*(\d+))?\s*K", re.IGNORECASE)
+_SALARY_BELOW_RE = re.compile(r"(\d+)\s*K以下", re.IGNORECASE)
+
+
+def parse_salary_range(value: str) -> tuple[int, int] | None:
+	"""Parse salary string like '20-50K' into (low, high) in K. Returns None if unparseable."""
+	if not value or value == "面议":
+		return None
+	m = _SALARY_BELOW_RE.search(value)
+	if m:
+		return (0, int(m.group(1)))
+	m = _SALARY_RE.search(value)
+	if m:
+		low = int(m.group(1))
+		high = int(m.group(2)) if m.group(2) else low
+		return (low, high)
+	return None
+
+
+# ── Threshold comparisons ───────────────────────────────────────────
+
+
+def meets_experience_threshold(candidate: str, required: str | None) -> bool:
+	"""Check if candidate experience meets or exceeds required threshold."""
+	if required is None:
+		return True
+	c = _EXPERIENCE_ORDER.get(candidate)
+	r = _EXPERIENCE_ORDER.get(required)
+	if c is None:
+		return True  # unknown experience passes
+	if r is None:
+		return True
+	return c >= r
+
+
+def meets_education_threshold(candidate: str, required: str | None) -> bool:
+	"""Check if candidate education meets or exceeds required threshold."""
+	if required is None:
+		return True
+	c = _EDUCATION_ORDER.get(candidate)
+	r = _EDUCATION_ORDER.get(required)
+	if c is None:
+		return True  # unknown education passes
+	if r is None:
+		return True
+	return c >= r
+
+
+# ── Data structures ─────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SearchFilterCriteria:
+	query: str
+	city: str | None = None
+	salary: str | None = None
+	experience: str | None = None
+	education: str | None = None
+	industry: str | None = None
+	scale: str | None = None
+	stage: str | None = None
+	job_type: str | None = None
+	raw_params: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class SearchPipelineStats:
+	pages_scanned: int = 0
+	jobs_seen: int = 0
+	jobs_prefiltered: int = 0
+	detail_checks: int = 0
+	jobs_matched: int = 0
+
+
+@dataclass
+class SearchPipelineResult:
+	items: list[dict[str, Any]] = field(default_factory=list)
+	has_more: bool = False
+	total: int | None = None
+	last_page: int = 0
+	stats: SearchPipelineStats = field(default_factory=SearchPipelineStats)
+
+
+class SearchPipelinePlatformError(Exception):
+	def __init__(self, code: str, message: str, details: dict[str, Any] | None = None):
+		self.code = code
+		self.message = message
+		self.details = details
+		super().__init__(message)
+
+
+# ── List-page prefilter ─────────────────────────────────────────────
+
+
+def prefilter_job(raw_item: dict[str, Any], criteria: SearchFilterCriteria) -> tuple[bool, list[str]]:
+	"""Fast prefilter using list-page fields only. Returns (pass, rejection_reasons)."""
+	reasons: list[str] = []
+
+	# City filter
+	if criteria.city:
+		item_city = raw_item.get("cityName", "")
+		if item_city and criteria.city not in item_city:
+			reasons.append(f"城市不匹配: {item_city} != {criteria.city}")
+
+	# Salary filter — reject only if candidate max is below required min
+	if criteria.salary:
+		req_range = parse_salary_range(criteria.salary)
+		item_range = parse_salary_range(raw_item.get("salaryDesc", ""))
+		if req_range and item_range:
+			if item_range[1] < req_range[0]:
+				reasons.append(f"薪资不足: {raw_item.get('salaryDesc', '')} < {criteria.salary}")
+
+	# Experience filter
+	if criteria.experience:
+		item_exp = raw_item.get("jobExperience", "")
+		if not meets_experience_threshold(item_exp, criteria.experience):
+			reasons.append(f"经验不足: {item_exp} < {criteria.experience}")
+
+	# Education filter
+	if criteria.education:
+		item_edu = raw_item.get("jobDegree", "")
+		if not meets_education_threshold(item_edu, criteria.education):
+			reasons.append(f"学历不足: {item_edu} < {criteria.education}")
+
+	return (len(reasons) == 0, reasons)
+
+
+# ── Welfare matching ────────────────────────────────────────────────
+
+
+def resolve_welfare_keywords(label: str) -> list[str]:
+	"""Resolve a welfare label to matching keywords."""
+	return WELFARE_KEYWORDS.get(label, [label])
+
+
+def _check_welfare_in_text(keywords: list[str], text: str) -> bool:
+	return any(kw in text for kw in keywords)
+
+
+def match_all_welfare(
+	conditions: list[tuple[str, list[str]]],
+	welfare_list: list[str],
+	description: str,
+) -> list[str]:
+	"""Check all welfare conditions (AND). Returns match descriptions or empty list."""
+	text = " ".join(welfare_list)
+	full_text = text + " " + description
+	results = []
+	for label, keywords in conditions:
+		if _check_welfare_in_text(keywords, text):
+			results.append(f"{label}(标签)")
+		elif description and _check_welfare_in_text(keywords, full_text):
+			results.append(f"{label}(描述)")
+		else:
+			return []
+	return results
+
+
+def compute_match_score(item: dict[str, Any], welfare_results: list[str], criteria: SearchFilterCriteria) -> int:
+	"""Compute a local 0-100 match score from already-fetched item fields."""
+	score = 0
+
+	for result in welfare_results:
+		if result.endswith("(标签)"):
+			score += 12
+		elif result.endswith("(描述)"):
+			score += 8
+
+	if criteria.city and criteria.city in str(item.get("city", "")):
+		score += 12
+
+	if criteria.salary:
+		item_range = parse_salary_range(str(item.get("salary", "")))
+		criteria_range = parse_salary_range(criteria.salary)
+		if item_range and criteria_range and item_range[1] >= criteria_range[0]:
+			score += 12
+
+	if criteria.experience and meets_experience_threshold(str(item.get("experience", "")), criteria.experience):
+		score += 10
+
+	if criteria.education and meets_education_threshold(str(item.get("education", "")), criteria.education):
+		score += 10
+
+	if criteria.query:
+		query = criteria.query.lower()
+		skills = item.get("skills", [])
+		if not isinstance(skills, list):
+			skills = []
+		searchable = f"{item.get('title', '')} {' '.join(str(skill) for skill in skills)}".lower()
+		if query and query in searchable:
+			score += 10
+
+	if item.get("welfare"):
+		score += 4
+
+	return min(score, 100)
+
+
+def _unwrap_platform_data(client: Any, response: dict[str, Any]) -> dict[str, Any]:
+	"""Read a platform envelope while tolerating legacy test doubles."""
+	unwrap = getattr(client, "unwrap_data", None)
+	if callable(unwrap):
+		data = unwrap(response)
+		if isinstance(data, dict):
+			return data
+	for key in ("zpData", "data"):
+		data = response.get(key)
+		if isinstance(data, dict):
+			return data
+	return {}
+
+
+def _fetch_and_check(
+	client: Any,
+	welfare_conditions: list[tuple[str, list[str]]],
+	criteria: SearchFilterCriteria,
+	raw_item: dict[str, Any],
+	cached_desc: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+	"""Single job: (复用缓存或取详情) + 福利匹配。不访问 cache（线程安全）。
+
+	返回 (匹配结果或 None, 需写回缓存的描述或 None)。
+	cached_desc 命中时跳过 job_card 请求（省一次平台请求 + throttle 等待）。
+	"""
+	welfare_list = raw_item.get("welfareList", [])
+	fresh_desc: str | None = None
+	if isinstance(cached_desc, str):
+		desc = cached_desc
+	else:
+		try:
+			card_raw = client.job_card(
+				raw_item.get("securityId", ""),
+				raw_item.get("lid", ""),
+			)
+			if not client.is_success(card_raw):
+				code, message = client.parse_error(card_raw)
+				raise SearchPipelinePlatformError(code, message or "职位详情获取失败")
+			card_data = _unwrap_platform_data(client, card_raw)
+			desc = card_data.get("jobCard", {}).get("postDescription", "")
+			fresh_desc = desc  # 仅新取到的描述需写回缓存（主线程处理）
+		except NotImplementedError:
+			raise SearchPipelinePlatformError(
+				"NOT_SUPPORTED",
+				"当前平台暂不支持福利详情筛选，请去掉 --welfare 后重试",
+			)
+		except (OSError, KeyError, TypeError):
+			desc = ""
+
+	match_results = match_all_welfare(welfare_conditions, welfare_list, desc)
+	if match_results:
+		item = JobItem.from_api(raw_item)
+		d = item.to_dict()
+		d["welfare_match"] = "✅ " + ", ".join(match_results)
+		d["match_score"] = compute_match_score(d, match_results, criteria)
+		return d, fresh_desc
+	return None, fresh_desc
+
+
+def _check_details_parallel(
+	client: Any,
+	cache: Any,
+	logger: Any,
+	welfare_conditions: list[tuple[str, list[str]]],
+	criteria: SearchFilterCriteria,
+	items: list[dict[str, Any]],
+	matched: list[dict[str, Any]],
+) -> None:
+	"""Parallel detail check, append matched to list. cache 操作在主线程完成。
+
+	主线程先查职位描述缓存命中者跳过取详情；未命中者入线程池取详，
+	取回的新描述由主线程写回缓存——所有 cache I/O 留在主线程（sqlite 非线程安全）。
+	"""
+	# 主线程预取缓存：命中的描述随提交一并传入 worker，避免 worker 触网。
+	# 键用 encryptJobId（跨搜索稳定）；securityId 每次搜索都变，不能做键。
+	cached_by_item = {id(raw_item): cache.get_job_desc(raw_item.get("encryptJobId", "")) for raw_item in items}
+	cache_hits = sum(1 for v in cached_by_item.values() if isinstance(v, str))
+	if cache_hits:
+		logger.info(f"  详情缓存命中 {cache_hits}/{len(items)}，跳过对应取详情请求")
+
+	with ThreadPoolExecutor(max_workers=_WELFARE_WORKERS) as pool:
+		futures = {
+			pool.submit(_fetch_and_check, client, welfare_conditions, criteria, raw_item, cached_by_item[id(raw_item)]): raw_item
+			for raw_item in items
+		}
+		for future in as_completed(futures):
+			raw_item = futures[future]
+			company = raw_item.get("brandName", "")
+			title = raw_item.get("jobName", "")
+			try:
+				result, fresh_desc = future.result()
+				# 写回缓存（主线程，sqlite 安全）：仅新取到的描述，键用稳定的 encryptJobId
+				if fresh_desc:
+					cache.put_job_desc(raw_item.get("encryptJobId", ""), fresh_desc)
+				if result:
+					# is_greeted 在主线程中安全访问 cache
+					sid = result.get("security_id", "")
+					if sid:
+						result["greeted"] = cache.is_greeted(sid)
+					matched.append(result)
+					logger.info(f"  ✅ {company} - {title}（详情匹配）")
+				else:
+					logger.info(f"  ❌ {company} - {title}")
+			except SearchPipelinePlatformError:
+				logger.info(f"  ❌ {company} - {title}（详情接口失败）")
+				raise
+			except Exception:
+				logger.info(f"  ❌ {company} - {title}（查询失败）")
+
+
+# ── Main pipeline ───────────────────────────────────────────────────
+
+
+def run_search_pipeline(
+	client: Any,
+	cache: Any,
+	logger: Any,
+	*,
+	criteria: SearchFilterCriteria,
+	start_page: int = 1,
+	max_pages: int = 1,
+	limit: int | None = None,
+	welfare_conditions: list[tuple[str, list[str]]] | None = None,
+	skip_greeted: bool = False,
+) -> SearchPipelineResult:
+	"""Run the full search pipeline: API search → list prefilter → welfare detail fallback."""
+	stats = SearchPipelineStats()
+	matched: list[dict[str, Any]] = []
+	current_page = start_page
+	last_page_scanned = 0
+	has_more = False
+
+	for _ in range(max_pages):
+		if limit and len(matched) >= limit:
+			break
+
+		logger.info(f"正在搜索第 {current_page} 页...")
+		search_filters: dict[str, Any] = {
+			"city": criteria.city,
+			"salary": criteria.salary,
+			"experience": criteria.experience,
+			"education": criteria.education,
+			"industry": criteria.industry,
+			"scale": criteria.scale,
+			"stage": criteria.stage,
+			"job_type": criteria.job_type,
+			"page": current_page,
+		}
+		if criteria.raw_params:
+			search_filters["raw_params"] = criteria.raw_params
+
+		raw = client.search_jobs(
+			criteria.query,
+			**search_filters,
+		)
+		if not client.is_success(raw):
+			code, message = client.parse_error(raw)
+			details = None
+			if isinstance(raw, dict):
+				error = raw.get("error")
+				if isinstance(error, dict) and isinstance(error.get("details"), dict):
+					details = error["details"]
+			raise SearchPipelinePlatformError(code, message or "搜索结果获取失败", details=details)
+		platform_data = _unwrap_platform_data(client, raw)
+		job_list = platform_data.get("jobList", [])
+		last_page_scanned = current_page
+		stats.pages_scanned += 1
+		stats.jobs_seen += len(job_list)
+
+		if not job_list:
+			break
+
+		# Phase 1: list-page prefilter
+		survivors = []
+		for raw_item in job_list:
+			ok, reasons = prefilter_job(raw_item, criteria)
+			if not ok:
+				stats.jobs_prefiltered += 1
+				logger.info(f"  预筛排除: {raw_item.get('jobName', '')} ({', '.join(reasons)})")
+				continue
+			survivors.append(raw_item)
+
+		# Phase 2: welfare filtering or direct collection
+		if welfare_conditions:
+			need_detail = []
+			for raw_item in survivors:
+				welfare_list = raw_item.get("welfareList", [])
+				match_results = match_all_welfare(welfare_conditions, welfare_list, "")
+				if match_results:
+					item = JobItem.from_api(raw_item)
+					item.greeted = cache.is_greeted(item.security_id)
+					if skip_greeted and item.greeted:
+						continue
+					d = item.to_dict()
+					d["welfare_match"] = "✅ " + ", ".join(match_results)
+					d["match_score"] = compute_match_score(d, match_results, criteria)
+					matched.append(d)
+					stats.jobs_matched += 1
+					logger.info(f"  ✅ {item.company} - {item.title}（标签匹配）")
+				else:
+					need_detail.append(raw_item)
+
+			if need_detail:
+				logger.info(f"  标签未命中 {len(need_detail)} 个，并行查详情...")
+				before = len(matched)
+				_check_details_parallel(client, cache, logger, welfare_conditions, criteria, need_detail, matched)
+				stats.detail_checks += len(need_detail)
+				stats.jobs_matched += len(matched) - before
+
+			# Post-filter skip_greeted for detail-matched items
+			if skip_greeted:
+				matched = [m for m in matched if not m.get("greeted", False)]
+		else:
+			for raw_item in survivors:
+				item = JobItem.from_api(raw_item)
+				item.greeted = cache.is_greeted(item.security_id)
+				if skip_greeted and item.greeted:
+					continue
+				d = item.to_dict()
+				d["match_score"] = compute_match_score(d, [], criteria)
+				matched.append(d)
+				stats.jobs_matched += 1
+
+		has_more = platform_data.get("hasMore", False)
+		if not has_more:
+			break
+		if limit and len(matched) >= limit:
+			break
+		current_page += 1
+
+	if limit:
+		matched = matched[:limit]
+
+	return SearchPipelineResult(
+		items=matched,
+		has_more=has_more,
+		total=len(matched),
+		last_page=last_page_scanned,
+		stats=stats,
+	)

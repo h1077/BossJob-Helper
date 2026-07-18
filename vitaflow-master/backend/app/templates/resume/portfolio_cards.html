@@ -1,0 +1,224 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .portfolio-cards {
+      --ink: #1e293b;
+      --muted: #64748b;
+      --soft: #f8fafc;
+      --line: #e2e8f0;
+      --accent: var(--theme-color);
+      color: var(--ink);
+      background: #ffffff;
+    }
+    .portfolio-cards .resume-header {
+      position: relative;
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 6mm;
+      margin-bottom: 6mm;
+      padding: 2mm 0;
+      border: none;
+      background: transparent;
+    }
+    .portfolio-cards .resume-header-main {
+      flex: 1;
+      min-width: 0;
+    }
+    .portfolio-cards .resume-name {
+      margin: 0 0 2mm;
+      color: var(--ink);
+      font-size: calc(var(--name-font-size) + 6px);
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+    .portfolio-cards .resume-name::before {
+      content: '';
+      display: block;
+      width: 20mm;
+      height: 3px;
+      background-color: var(--accent);
+      margin-bottom: 3.5mm;
+      border-radius: 1.5px;
+    }
+    .portfolio-cards .resume-avatar-center .resume-name::before {
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .portfolio-cards .resume-avatar-center .resume-meta {
+      justify-content: center;
+    }
+    .portfolio-cards .resume-position {
+      display: block;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--accent);
+      font-size: calc(var(--title-font-size) + 1px);
+      font-weight: 600;
+      margin-bottom: 2.5mm;
+    }
+    .portfolio-cards .resume-meta {
+      margin-top: 2mm;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2mm 5mm;
+      color: var(--muted);
+      font-size: 0.9em;
+    }
+    .portfolio-cards .resume-meta span {
+      display: inline-flex;
+      align-items: center;
+      margin: 0;
+      gap: 1mm;
+      white-space: nowrap;
+    }
+    .portfolio-cards .resume-avatar-cell {
+      position: static;
+      flex-shrink: 0;
+    }
+    .portfolio-cards .resume-avatar {
+      width: 25mm;
+      height: 35mm;
+      margin: 0;
+      border-radius: 6px;
+      border: none;
+      object-fit: cover;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .portfolio-cards .section {
+      margin: 0 0 calc(var(--section-margin-bottom) + 4px);
+      padding: 0;
+      border: none;
+      background: transparent;
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .portfolio-cards .section-title {
+      display: flex;
+      align-items: center;
+      margin: 0 0 calc(var(--section-title-margin-bottom) + 2px);
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: var(--ink);
+      font-size: calc(var(--title-font-size) + 1px);
+      font-weight: 700;
+    }
+    .portfolio-cards .section-title::before {
+      content: '';
+      display: block;
+      width: 3.5px;
+      height: 15px;
+      background-color: var(--accent);
+      border-radius: 2px;
+      margin-right: 2.5mm;
+    }
+    .portfolio-cards .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background-color: var(--line);
+      margin-left: 4mm;
+    }
+    .portfolio-cards .experience-item,
+    .portfolio-cards .section-summary .rich-text-body {
+      margin-bottom: 4mm;
+      padding: 5mm 6mm;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      background: #fcfcfd;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .portfolio-cards .experience-item:last-child,
+    .portfolio-cards .section-summary .rich-text-body:last-child {
+      margin-bottom: 0;
+    }
+    .portfolio-cards .item-head {
+      color: var(--ink);
+      font-weight: 700;
+      gap: 6mm;
+      margin-bottom: 2mm;
+      align-items: center;
+    }
+    .portfolio-cards .item-head strong {
+      font-size: calc(var(--base-font-size) + 1px);
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .portfolio-cards .item-head > span {
+      background: #f1f5f9;
+      color: #64748b;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.85em;
+      font-weight: 600;
+    }
+    .portfolio-cards .inline-meta { color: var(--muted); font-weight: 500; }
+    .portfolio-cards .item-sub {
+      color: var(--muted);
+      font-size: 0.9em;
+      margin-bottom: 2mm;
+      font-weight: 500;
+    }
+    .portfolio-cards .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5mm;
+      margin-bottom: 2.5mm;
+    }
+    .portfolio-cards .tag-row span {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #475569;
+      font-size: 0.85em;
+      font-weight: 600;
+      padding: 2px 8px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    }
+    .portfolio-cards .rich-text-body {
+      color: #334155;
+      line-height: 1.6;
+    }
+    .portfolio-cards .rich-text-body ul {
+      margin: 0;
+      padding-left: 4.5mm;
+    }
+    .portfolio-cards .rich-text-body li {
+      margin-bottom: 1.5mm;
+    }
+    .portfolio-cards .rich-text-body li:last-child {
+      margin-bottom: 0;
+    }
+    .portfolio-cards .rich-text-body li::marker {
+      color: var(--accent);
+    }
+    .portfolio-cards .rich-text-body blockquote {
+      background: #ffffff;
+      border-left: 3px solid var(--accent);
+      padding: 2mm 3mm;
+      border-radius: 0 4px 4px 0;
+      margin: 1mm 0;
+    }
+  </style>
+</head>
+<body>
+  <main class="resume-page portfolio-cards">
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    {% for section in resume._sections %}
+      {{ render_section(section, resume) }}
+    {% endfor %}
+  </main>
+</body>
+</html>

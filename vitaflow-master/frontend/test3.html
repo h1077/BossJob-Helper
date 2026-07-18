@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <div id="editor" contenteditable="true">
+    Select this text and click the button.
+  </div>
+  <div id="wrapper" onmousedown="testMousedown()">
+    <button id="btn">Button inside wrapper</button>
+  </div>
+  <div id="log"></div>
+  <script>
+    function testMousedown() {
+      const selection = window.getSelection();
+      document.getElementById('log').innerText = 'mousedown selection range count: ' + selection.rangeCount + ', text: ' + selection.toString();
+    }
+  </script>
+</body>
+</html>

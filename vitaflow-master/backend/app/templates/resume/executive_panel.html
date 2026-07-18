@@ -1,0 +1,160 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .executive-panel {
+      --ink: #152238;
+      --muted: #667085;
+      --panel: var(--theme-color);
+      --accent: {{ config.accent_color or '#b7791f' }};
+      color: var(--ink);
+      background: {{ config.bg_color or '#ffffff' }};
+    }
+    .executive-panel .resume-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 7mm;
+      margin: 0 0 7mm;
+      padding: 8mm;
+      border: 0;
+      background: var(--panel);
+      color: white;
+    }
+    .executive-panel .resume-header-main {
+      display: block;
+      width: auto;
+    }
+    .executive-panel .resume-name {
+      color: white;
+      font-size: calc(var(--name-font-size) + 8px);
+      line-height: 1.06;
+      margin-bottom: 2mm;
+    }
+    .executive-panel .resume-position {
+      color: rgba(255, 255, 255, 0.86);
+      font-size: calc(var(--title-font-size) + 1px);
+      font-weight: 600;
+    }
+    .executive-panel .resume-meta {
+      margin-top: 4mm;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2mm 5mm;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 0.92em;
+    }
+    .executive-panel .resume-meta span {
+      display: inline-flex;
+      align-items: center;
+      margin: 0;
+      gap: 1mm;
+      white-space: nowrap;
+    }
+    .executive-panel .meta-icon { color: rgba(255, 255, 255, 0.9); }
+    .executive-panel .resume-avatar-cell {
+      display: block;
+      width: auto;
+      padding: 0;
+      align-self: start;
+      text-align: right;
+    }
+    .executive-panel .resume-avatar {
+      width: 26mm;
+      height: 34mm;
+      margin: 0;
+      border-radius: 2px;
+      border: 1.5mm solid rgba(255, 255, 255, 0.18);
+      object-fit: cover;
+    }
+    .executive-panel .resume-avatar-left {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+    .executive-panel .resume-avatar-left .resume-avatar-cell {
+      grid-column: 1;
+      grid-row: 1;
+      text-align: left;
+      align-self: center;
+    }
+    .executive-panel .resume-avatar-left .resume-header-main {
+      grid-column: 2;
+      grid-row: 1;
+      align-self: center;
+    }
+    .executive-panel .resume-avatar-center {
+      display: block;
+      text-align: center;
+    }
+    .executive-panel .resume-avatar-center .resume-meta {
+      justify-content: center;
+    }
+    .executive-panel .section {
+      display: grid;
+      grid-template-columns: 36mm minmax(0, 1fr);
+      column-gap: 7mm;
+      align-items: start;
+      margin: 0 0 calc(var(--section-margin-bottom) + 7px);
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .executive-panel .section-title {
+      margin: 0;
+      padding: 3mm 3mm;
+      min-height: 10mm;
+      border: 0;
+      border-top: 2px solid var(--accent);
+      background: #f4f6f8;
+      color: var(--panel);
+      font-size: calc(var(--title-font-size) - 1px);
+      font-weight: 800;
+      line-height: 1.25;
+      align-self: start;
+    }
+    .executive-panel .section > :not(.section-title) {
+      grid-column: 2;
+      min-width: 0;
+    }
+    .executive-panel .experience-item {
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e7ebef;
+    }
+    .executive-panel .experience-item:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+    .executive-panel .item-head {
+      color: var(--ink);
+      font-weight: 800;
+      align-items: baseline;
+    }
+    .executive-panel .item-head > span,
+    .executive-panel .inline-meta,
+    .executive-panel .item-sub { color: var(--muted); }
+    .executive-panel .tag-row span {
+      border-radius: 2px;
+      border: 1px solid #d9e1ea;
+      background: #ffffff;
+      color: var(--panel);
+      font-weight: 700;
+      padding: 1px 8px;
+    }
+    .executive-panel .rich-text-body blockquote {
+      border-left-color: var(--accent);
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="resume-page executive-panel">
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    {% for section in resume._sections %}
+      {{ render_section(section, resume) }}
+    {% endfor %}
+  </main>
+</body>
+</html>

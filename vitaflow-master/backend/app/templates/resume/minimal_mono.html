@@ -1,0 +1,99 @@
+{% from 'resume/partials/section.html' import render_section %}
+<!doctype html>
+<html lang="{{ resume._language }}">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'resume/style-base.css' %}
+    .minimal-mono {
+      --ink: #000000;
+      --muted: #4b5563;
+      --border: #e5e7eb;
+      background-color: {{ config.bg_color or '#ffffff' }};
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .minimal-mono .resume-header {
+      position: relative;
+      padding: 2mm 0 4mm 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 5mm;
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 4mm;
+    }
+    .minimal-mono .resume-header-main { flex: 1; min-width: 0; }
+    .minimal-mono .resume-name {
+      font-size: calc(var(--name-font-size) + 4px);
+      font-weight: 800;
+      letter-spacing: 1px;
+      margin-bottom: 1mm;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+    .minimal-mono .resume-position {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: var(--title-font-size);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .minimal-mono .resume-meta {
+      margin-top: 2mm;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1mm 4mm;
+      font-size: calc(var(--base-font-size) - 1px);
+    }
+    .minimal-mono .resume-meta span { display: flex; align-items: center; gap: 1mm; }
+    .minimal-mono .resume-avatar-cell { position: static; flex-shrink: 0; }
+    .minimal-mono .resume-avatar { width: 25mm; height: 35mm; border-radius: 2px; object-fit: cover; border: none; }
+    .minimal-mono .section {
+      margin-bottom: calc(var(--section-margin-bottom) + 6px);
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: calc(var(--section-margin-bottom) - 2px);
+    }
+    .minimal-mono .section:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .minimal-mono .section-title {
+      font-size: calc(var(--title-font-size) + 2px);
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: calc(var(--section-title-margin-bottom) + 2px);
+      padding-bottom: 0;
+      border: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .minimal-mono .item-head { font-weight: 700; color: var(--ink); display: flex; justify-content: space-between; align-items: baseline; }
+    .minimal-mono .item-sub { color: var(--muted); margin: 1px 0 4px; font-size: 0.95em; }
+    .minimal-mono .tag-row span {
+      background: #f1f5f9;
+      border: none;
+      color: var(--ink);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 0.85em;
+      font-weight: 500;
+    }
+    .minimal-mono .rich-text-body blockquote { border-left: 2px solid var(--ink); padding-left: 3mm; color: var(--muted); }
+    .minimal-mono .experience-item { margin-bottom: 12px; }
+    .minimal-mono .experience-item:last-child { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <main class="resume-page minimal-mono">
+    {% if 'basics' not in (resume.layout.hidden_sections or []) %}
+      {% include 'resume/partials/basics.html' %}
+    {% endif %}
+    {% for section in resume._sections %}
+      {{ render_section(section, resume) }}
+    {% endfor %}
+  </main>
+</body>
+</html>

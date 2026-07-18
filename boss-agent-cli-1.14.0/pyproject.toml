@@ -1,0 +1,188 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "boss-agent-cli"
+version = "1.14.0"
+description = "AI Agent 专用的 BOSS 直聘求职 CLI 工具"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+	{name = "can4hou6joeng4"},
+]
+keywords = ["boss-zhipin", "job-search", "ai-agent", "cli", "recruitment", "boss直聘"]
+classifiers = [
+	"Development Status :: 4 - Beta",
+	"Environment :: Console",
+	"Intended Audience :: Developers",
+	"License :: OSI Approved :: MIT License",
+	"Programming Language :: Python :: 3",
+	"Programming Language :: Python :: 3.10",
+	"Programming Language :: Python :: 3.11",
+	"Programming Language :: Python :: 3.12",
+	"Programming Language :: Python :: 3.13",
+	"Topic :: Office/Business",
+	"Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+	"click>=8.0",
+	"httpx>=0.27",
+	"cryptography>=42.0",
+	"patchright>=1.58.2",
+	"browser-cookie3>=0.16.2",
+	"rich>=13.0",
+	"pyyaml>=6.0",
+	"websockets>=12.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/can4hou6joeng4/boss-agent-cli"
+Repository = "https://github.com/can4hou6joeng4/boss-agent-cli"
+Issues = "https://github.com/can4hou6joeng4/boss-agent-cli/issues"
+
+[project.optional-dependencies]
+dev = [
+	"pytest>=9.0.3",
+	"pytest-cov>=5.0",
+	"ruff>=0.4",
+	"pre-commit>=3.0",
+	"mypy>=1.20",
+	"types-PyYAML>=6.0",
+]
+bridge = [
+	"aiohttp>=3.9",
+]
+mcp = [
+	"mcp>=1.0.0",
+]
+
+[project.scripts]
+boss = "boss_agent_cli.main:cli"
+boss-mcp = "boss_agent_cli.mcp_server:run"
+
+[tool.hatch.build]
+exclude = [
+	"/.venv*",
+	"/.pytest_cache",
+	"/.ruff_cache",
+	"/.mypy_cache",
+	"/dist",
+	"/build",
+	"/demo/**/*.mp4",
+	"/demo/**/*.gif",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+# Python files intentionally use tabs. Ruff's indent-width controls visual width.
+[tool.ruff]
+line-length = 120
+indent-width = 4
+
+[tool.ruff.format]
+indent-style = "tab"
+
+[tool.mypy]
+python_version = "3.10"
+# 渐进接入：仅跑基础类型检查，允许现有未注解函数存在
+# 目标：先覆盖报错→逐模块消化→最终切 --strict
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+exclude = [
+	"^build/",
+	"^dist/",
+	"^\\.venv/",
+]
+
+# 逐模块严格化：已覆盖率 100% 的核心工具模块先严起来
+[[tool.mypy.overrides]]
+module = [
+	"boss_agent_cli.output",
+	"boss_agent_cli.config",
+	"boss_agent_cli.hooks",
+	"boss_agent_cli.digest",
+	"boss_agent_cli.match_score",
+	"boss_agent_cli.pipeline_state",
+	"boss_agent_cli.index_cache",
+	"boss_agent_cli.chat_summary",
+	"boss_agent_cli.search_filters",
+	"boss_agent_cli.resume.models",
+	"boss_agent_cli.resume.store",
+	"boss_agent_cli.commands.cities",
+	"boss_agent_cli.commands.chat_utils",
+	"boss_agent_cli.commands.history",
+	"boss_agent_cli.commands.login",
+	"boss_agent_cli.commands.logout",
+	"boss_agent_cli.commands.recommend",
+	"boss_agent_cli.commands.apply",
+	"boss_agent_cli.commands.chatmsg",
+	"boss_agent_cli.commands.digest",
+	"boss_agent_cli.commands.exchange",
+	"boss_agent_cli.commands.interviews",
+	"boss_agent_cli.commands.pipeline",
+	"boss_agent_cli.commands.status",
+	"boss_agent_cli.commands.me",
+	"boss_agent_cli.commands.show",
+	"boss_agent_cli.commands.mark",
+	"boss_agent_cli.commands.clean",
+	"boss_agent_cli.commands.shortlist",
+	"boss_agent_cli.commands.chat_snapshot",
+	"boss_agent_cli.commands.preset",
+	"boss_agent_cli.commands.watch",
+	"boss_agent_cli.commands.search",
+	"boss_agent_cli.commands.greet",
+	"boss_agent_cli.commands.chat",
+	"boss_agent_cli.commands.detail",
+	"boss_agent_cli.commands.doctor",
+	"boss_agent_cli.commands.export",
+	"boss_agent_cli.commands.schema",
+	"boss_agent_cli.commands.chat_export",
+	"boss_agent_cli.commands.config_cmd",
+	"boss_agent_cli.commands.ai_cmd",
+	"boss_agent_cli.commands.resume_cmd",
+	"boss_agent_cli.main",
+	"boss_agent_cli.ai.config",
+	"boss_agent_cli.ai.service",
+	"boss_agent_cli.ai.prompts",
+	"boss_agent_cli.resume.templates",
+	"boss_agent_cli.resume.export",
+	"boss_agent_cli.auth.token_store",
+	"boss_agent_cli.auth.cookie_extract",
+	"boss_agent_cli.api.models",
+	"boss_agent_cli.api.throttle",
+	"boss_agent_cli.api.httpx_helpers",
+	"boss_agent_cli.api.endpoints",
+	"boss_agent_cli.api.endpoints_loader",
+	"boss_agent_cli.commands.stats",
+	"boss_agent_cli.commands.chat_summary",
+	"boss_agent_cli.cache.store",
+	"boss_agent_cli.auth.manager",
+	"boss_agent_cli.auth.qr_login",
+	"boss_agent_cli.api.client",
+	"boss_agent_cli.api.browser_client",
+	"boss_agent_cli.auth.browser",
+	"boss_agent_cli.bridge.client",
+	"boss_agent_cli.bridge.daemon",
+	"boss_agent_cli.platforms",
+	"boss_agent_cli.platforms.base",
+	"boss_agent_cli.platforms.zhipin",
+	"boss_agent_cli.platforms.zhilian",
+	"boss_agent_cli.api.zhilian_client",
+	"boss_agent_cli.commands._platform",
+]
+disallow_untyped_defs = true
+disallow_any_generics = true
+warn_return_any = true
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.1",
+    "types-pyyaml>=6.0.12.20260408",
+    "websockets>=16.0",
+]
