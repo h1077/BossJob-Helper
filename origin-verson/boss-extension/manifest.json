@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Boss海投助手",
-  "version": "1.0.0",
+  "version": "1.1.6",
   "description": "BOSS直聘智能投递助手：自动搜索、AI匹配、定制招呼语、跨页面自动投递",
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": { "default_title": "BOSS自动投递" },
   "side_panel": { "default_path": "src/sidepanel.html" },
   "permissions": ["storage", "tabs", "scripting", "sidePanel"],
   "host_permissions": [
+    "http://localhost:5001/*",
     "*://*.zhipin.com/*",
     "https://api.deepseek.com/*",
     "https://api.openai.com/*",
@@ -24,7 +25,7 @@
     },
     {
       "matches": ["*://*.zhipin.com/web/geek/chat*"],
-      "js": ["src/selectors.js", "src/content-chat.js"],
+      "js": ["src/selectors.js", "src/feedback-events.js", "src/content-chat.js"],
       "run_at": "document_idle"
     }
   ]

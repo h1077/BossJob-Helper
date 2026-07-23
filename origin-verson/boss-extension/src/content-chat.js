@@ -155,6 +155,48 @@
     return { success: true };
   }
 
+  function feedbackContext() {
+    const url = new URL(location.href);
+    const sourceJobId = url.searchParams.get('jobId') || url.searchParams.get('jobid') || url.searchParams.get('jid') || '';
+    const company = document.querySelector(SELECTORS.chat.userCompany);
+    const hr = document.querySelector(SELECTORS.chat.userName);
+    return {
+      sourceJobId,
+      companyName: FeedbackEvents.normalizeSummary(company && company.textContent),
+      hrName: FeedbackEvents.normalizeSummary(hr && hr.textContent),
+    };
+  }
+
+  function createFeedbackEvent(text) {
+    const summary = FeedbackEvents.normalizeSummary(text);
+    if (!FeedbackEvents.isFeedbackCandidate(summary)) return null;
+    return {
+      conversationId: location.pathname + location.search,
+      ...feedbackContext(),
+      summary,
+      eventType: FeedbackEvents.classify(summary),
+      occurredAt: new Date().toISOString(),
+      source: 'chat_page'
+    };
+  }
+
+  function reportFeedback(text) {
+    const event = createFeedbackEvent(text);
+    if (event) chrome.runtime.sendMessage({ type: 'CHAT_FEEDBACK_EVENT', event }).catch(() => {});
+  }
+
+  function setupFeedbackObserver() {
+    const chatList = document.querySelector('.chat-message .im-list') || document.querySelector('[class*="chat-list"]') || document.querySelector('[class*="message-list"]');
+    if (!chatList) return;
+    new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('item-friend')) reportFeedback(node.textContent || '');
+        }
+      }
+    }).observe(chatList, { childList: true, subtree: true });
+  }
+
   // ── AI 自动回复（MutationObserver 监听新消息）──
   let autoReplyObserver = null;
   let lastProcessedText = '';
@@ -209,12 +251,17 @@
   }
 
   // 初始化自动回复（延迟等待页面加载）
-  setTimeout(setupAutoReply, 5000);
+  setTimeout(() => { setupAutoReply(); setupFeedbackObserver(); }, 5000);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'SEND_ALL') {
       sendAll(msg).then(r => sendResponse(r)).catch(e => sendResponse({ success: false, error: e.message }));
       return true;
+    }
+    if (msg.type === 'SCAN_VISIBLE_FEEDBACK') {
+      const messages = [...document.querySelectorAll('.item-friend')].map(node => ({ text: node.textContent || '' }));
+      const events = FeedbackEvents.buildVisibleFeedbackEvents(messages, location.pathname + location.search, feedbackContext());
+      sendResponse({ success: true, events });
     }
   });
 })();

@@ -436,17 +436,23 @@ async function syncFromDesktop() {
 
 // ── Agent 命令轮询 ──
 let agentPollTimer = null;
+function agentHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (desktopToken) headers.Authorization = 'Bearer ' + desktopToken;
+  return headers;
+}
 async function startAgentPolling() {
   if (agentPollTimer) return;
   agentPollTimer = setInterval(async () => {
     try {
       const resp = await fetch('http://localhost:5001/api/agent/command', {
+        headers: agentHeaders(),
         signal: AbortSignal.timeout(3000)
       });
       if (!resp.ok) return;
       const data = await resp.json();
-      if (data.ok && data.data && data.data.action) {
-        const cmd = data.data;
+      const cmd = data?.data?.command;
+      if (data.ok && data?.data?.pending && cmd?.action) {
         addLog('收到Agent命令: ' + cmd.action, 'info');
         if (cmd.action === 'start_apply') {
           $('btnCollect').click();
@@ -456,7 +462,7 @@ async function startAgentPolling() {
         // ACK
         fetch('http://localhost:5001/api/agent/command/ack', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: agentHeaders(),
           body: JSON.stringify({ id: cmd.id || '', status: 'done' }),
           signal: AbortSignal.timeout(3000)
         }).catch(() => {});
@@ -467,6 +473,23 @@ async function startAgentPolling() {
 function stopAgentPolling() {
   if (agentPollTimer) { clearInterval(agentPollTimer); agentPollTimer = null; }
 }
+
+$('btnRefreshFeedback').addEventListener('click', async () => {
+  const status = $('feedbackRefreshStatus');
+  status.textContent = '正在读取当前聊天页...';
+  const tabs = await chrome.tabs.query({ url: '*://*.zhipin.com/web/geek/chat*' });
+  if (!tabs.length) { status.textContent = '请先打开 BOSS 聊天页'; return; }
+  const response = await new Promise(resolve => chrome.tabs.sendMessage(tabs[0].id, { type: 'SCAN_VISIBLE_FEEDBACK' }, resolve));
+  if (!response?.success) { status.textContent = '读取失败，请刷新聊天页后重试'; return; }
+  const results = await Promise.all((response.events || []).map(event =>
+    chrome.runtime.sendMessage({ type: 'CHAT_FEEDBACK_EVENT', event }).catch(() => null)
+  ));
+  const pendingCount = results.reduce((max, result) => Math.max(max, result?.data?.pendingCount || 0), 0);
+  status.textContent = pendingCount
+    ? `已检查 ${(response.events || []).length} 条可见来信；${pendingCount} 条等待桌面端同步`
+    : `已检查 ${(response.events || []).length} 条可见来信`;
+  await chrome.storage.local.set({ lastFeedbackRefreshAt: Date.now() });
+});
 
 // ── JD 需求分析 ──
 $('btnJdAnalysis').addEventListener('click', async () => {
@@ -713,6 +736,7 @@ function showReviewList(queue) {
 
 function renderReviewList(filtered) {
   const list = filtered || reviewQueue;
+  const escapeHtml = DesktopBridge.escapeHtml;
 
   // 按公司聚合：同公司多岗位折叠显示
   const companyGroups = {};
@@ -725,24 +749,26 @@ function renderReviewList(filtered) {
 
   let html = '';
   let globalIdx = 0;
+  let groupIdx = 0;
   for (const key of companyOrder) {
     const jobs = companyGroups[key];
-    const company = jobs[0].company || '未知';
+    const company = escapeHtml(jobs[0].company || '未知');
+    const groupId = String(groupIdx++);
     if (jobs.length > 1) {
-      html += '<div style="background:#f8fafc;padding:4px 8px;margin:4px 0;border-radius:4px;font-size:11px;color:#555;cursor:pointer;" class="company-group-header" data-key="' + key + '">🏢 ' + company + ' (' + jobs.length + '个岗位) ▸</div>';
-      html += '<div class="company-group-body" data-key="' + key + '" style="display:none;">';
+      html += '<div style="background:#f8fafc;padding:4px 8px;margin:4px 0;border-radius:4px;font-size:11px;color:#555;cursor:pointer;" class="company-group-header" data-group="' + groupId + '">🏢 ' + company + ' (' + jobs.length + '个岗位) ▸</div>';
+      html += '<div class="company-group-body" data-group="' + groupId + '" style="display:none;">';
     }
     for (const j of jobs) {
       const i = globalIdx++;
       const score = j.matchScore || 0;
       const level = score >= 7 ? '🔥' : score >= 4 ? '👍' : '📌';
       const bossBadge = j.isBoss ? '<span style="background:#fff3e0;color:#e65100;padding:0 4px;border-radius:3px;font-size:10px;margin-left:4px;">👔直招</span>' : '';
-      const hrInfo = j.hrTitle ? ' · ' + (j.hrName || '') + ' ' + j.hrTitle : '';
+      const hrInfo = j.hrTitle ? ' · ' + escapeHtml(j.hrName || '') + ' ' + escapeHtml(j.hrTitle) : '';
       html += '<label class="review-item" style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:12px;cursor:pointer;">' +
         '<input type="checkbox" class="review-cb" data-idx="' + i + '" checked style="margin-top:2px;">' +
         '<div style="flex:1;">' +
-        '<b>' + (j.name || '未知') + '</b>' + bossBadge +
-        '<br><span style="color:#666;">' + (j.salary || '') + ' · ' + (j.location || j.city || '') + hrInfo + '</span>' +
+        '<b>' + escapeHtml(j.name || '未知') + '</b>' + bossBadge +
+        '<br><span style="color:#666;">' + escapeHtml(j.salary || '') + ' · ' + escapeHtml(j.location || j.city || '') + hrInfo + '</span>' +
         '<button class="btn-sm analyze-btn" data-idx="' + i + '" style="float:right;font-size:10px;padding:1px 6px;margin-top:2px;">📊分析</button>' +
         '<span style="float:right;color:#4285f4;margin-right:4px;">' + level + score + '分</span>' +
         '</div></label>';
@@ -755,7 +781,7 @@ function renderReviewList(filtered) {
   // 折叠展开
   $('reviewList').querySelectorAll('.company-group-header').forEach(h => {
     h.addEventListener('click', () => {
-      const body = $('reviewList').querySelector('.company-group-body[data-key="' + h.dataset.key + '"]');
+      const body = $('reviewList').querySelector('.company-group-body[data-group="' + h.dataset.group + '"]');
       const visible = body.style.display !== 'none';
       body.style.display = visible ? 'none' : 'block';
       h.innerHTML = h.innerHTML.replace(visible ? '▸' : '▾', visible ? '▾' : '▸');
@@ -982,6 +1008,24 @@ $('btnReport').addEventListener('click', async () => {
 
 // ── 桌面桥接检测 ──
 let desktopToken = '';
+async function refreshFeedbackSyncStatus(syncNow = false) {
+  const type = syncNow ? 'SYNC_PENDING_FEEDBACK' : 'GET_PENDING_FEEDBACK_COUNT';
+  try {
+    const response = await chrome.runtime.sendMessage({ type });
+    const data = response && response.data;
+    const pendingCount = response && (data ? data.pendingCount : response.pendingCount);
+    const status = $('feedbackRefreshStatus');
+    if (syncNow && data && data.synced) {
+      status.textContent = `已同步 ${data.synced} 条离线反馈；${pendingCount ? `仍有 ${pendingCount} 条等待桌面端` : '全部完成'}`;
+    } else if (pendingCount) {
+      status.textContent = `有 ${pendingCount} 条反馈等待桌面端连接后自动同步`;
+    }
+    return pendingCount || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
 async function checkDesktopBridge() {
   try {
     const resp = await fetch('http://localhost:5001/api/health', { signal: AbortSignal.timeout(2000) });
@@ -993,6 +1037,7 @@ async function checkDesktopBridge() {
       } catch (e) { desktopToken = ''; }
       $('desktopStatus').textContent = '已连接桌面端';
       $('desktopStatus').style.color = '#2e7d32';
+      await refreshFeedbackSyncStatus(true);
       return true;
     }
   } catch (e) {}
@@ -1035,4 +1080,5 @@ loadCfg();
 updateDashboard();
 checkDesktopBridge().then(ok => {
   if (ok) { syncFromDesktop(); startAgentPolling(); }
+  else refreshFeedbackSyncStatus();
 });

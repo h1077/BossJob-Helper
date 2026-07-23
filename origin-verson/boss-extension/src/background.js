@@ -1,5 +1,5 @@
 // ===== Boss海投助手 Service Worker：编排 收集→投递→跨页面接力 =====
-importScripts('/src/selectors.js');
+importScripts('/src/selectors.js', '/src/desktop-bridge.js', '/src/feedback-events.js');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (a, b) => sleep(a + Math.random() * (b - a));
@@ -609,34 +609,48 @@ function isSalaryInRange(jobSalary, userRangeCode) {
 }
 
 // ── 桌面桥接 ──
-let _desktopToken = '';
-async function getDesktopToken() {
-  if (_desktopToken) return _desktopToken;
-  try {
-    const resp = await fetch('http://localhost:5001/api/local-token', { signal: AbortSignal.timeout(2000) });
-    if (resp.ok) { const d = await resp.json(); _desktopToken = d.token || ''; }
-  } catch (e) {}
-  return _desktopToken;
-}
 async function desktopProxy(messages, maxTokens, temperature) {
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    const token = await getDesktopToken();
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    const body = { messages, max_tokens: maxTokens || 500 };
-    if (temperature != null) body.temperature = temperature;
-    const resp = await fetch('http://localhost:5001/api/ai/proxy', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15000)
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      return (data.content || data.text || data.reply || '');
-    }
+    return await DesktopBridge.proxy(messages, maxTokens, temperature);
   } catch (e) {}
   return null;
+}
+
+async function saveFeedbackEvent(event) {
+  const key = FeedbackEvents.eventKey(event);
+  const pending = await chrome.storage.local.get('pendingFeedbackEvents');
+  const queue = pending.pendingFeedbackEvents || [];
+  if (queue.some(item => item.eventKey === key)) return { queued: true, pendingCount: queue.length };
+  const payload = { ...event, eventKey: key };
+  try {
+    await DesktopBridge.request('/api/feedback-events', { method: 'POST', body: JSON.stringify(payload) });
+    log('检测到 HR 反馈，已加入待确认队列', 'info');
+    return { queued: false, pendingCount: queue.length };
+  } catch (error) {
+    const nextQueue = [...queue, payload].slice(-100);
+    await chrome.storage.local.set({ pendingFeedbackEvents: nextQueue });
+    log('反馈事件暂未同步到桌面端', 'warn');
+    return { queued: true, pendingCount: nextQueue.length };
+  }
+}
+
+async function syncPendingFeedbackEvents() {
+  const stored = await chrome.storage.local.get('pendingFeedbackEvents');
+  const queue = stored.pendingFeedbackEvents || [];
+  if (!queue.length) return { synced: 0, pendingCount: 0 };
+
+  const remaining = [];
+  let synced = 0;
+  for (const payload of queue) {
+    try {
+      await DesktopBridge.request('/api/feedback-events', { method: 'POST', body: JSON.stringify(payload) });
+      synced += 1;
+    } catch (error) {
+      remaining.push(payload);
+    }
+  }
+  await chrome.storage.local.set({ pendingFeedbackEvents: remaining });
+  return { synced, pendingCount: remaining.length };
 }
 
 // ── 仪表盘追踪 ──
@@ -705,9 +719,8 @@ async function runCollect() {
     log('同步到桌面端...');
     for (const job of state.jobs) {
       try {
-        await fetch('http://localhost:5001/api/jobs/collect', {
+        await DesktopBridge.request('/api/jobs/collect', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             jobId: job.id, id: job.id,
             companyName: job.company, jobName: job.name,
@@ -718,7 +731,6 @@ async function runCollect() {
             companyScale: job.companyScale, companyIndustry: job.companyIndustry,
             status: 'not_applied'
           }),
-          signal: AbortSignal.timeout(3000)
         });
         synced++;
       } catch (e) { /* 桌面端未运行，静默跳过 */ }
@@ -744,7 +756,7 @@ async function runCollect() {
   log('─── 🔍 筛选配置 ───', 'info');
   log('useResumeMatch: ' + cfg.useResumeMatch, 'info');
   log('matchMinScore: ' + cfg.matchMinScore, 'info');
-  log('resumeText 前100字: ' + ((cfg.resumeText || '(未填写)') + '').slice(0, 100), 'info');
+  log('已读取简历配置', 'info');
   log('resumeAnalysis 前100字: ' + ((cfg.resumeAnalysis || '(未填写)') + '').slice(0, 100), 'info');
   log('提取关键词(' + keywords.length + '个): ' + (keywords.length ? keywords.slice(0, 30).join(', ') : '(无)'), 'info');
   if (weaknesses.length > 0) {
@@ -1030,11 +1042,17 @@ async function runDeliver() {
       // 同步到桌面数据库
       if (cfg.useDesktopBridge) {
         try {
-          await fetch('http://localhost:5001/api/jobs/collect', {
+          await DesktopBridge.request('/api/jobs/collect', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jobId: job.id, id: job.id, company: job.company, position: job.name, salary: job.salary, location: job.location, status: 'applied', match_score: job.matchScore }),
-            signal: AbortSignal.timeout(3000)
+            body: JSON.stringify({
+              jobId: job.id,
+              id: job.id,
+              companyName: job.company,
+              jobName: job.name,
+              salary: job.salary,
+              location: job.location,
+              status: 'applied',
+            }),
           });
         } catch (e) { /* 桌面端未运行，静默跳过 */ }
       }
@@ -1080,6 +1098,12 @@ async function runDeliver() {
 
 // ── 消息入口 ──
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'CHAT_FEEDBACK_EVENT') { saveFeedbackEvent(msg.event).then(data => sendResponse({ ok: true, data })); return true; }
+  if (msg.type === 'SYNC_PENDING_FEEDBACK') { syncPendingFeedbackEvents().then(data => sendResponse({ ok: true, data })); return true; }
+  if (msg.type === 'GET_PENDING_FEEDBACK_COUNT') {
+    chrome.storage.local.get('pendingFeedbackEvents', data => sendResponse({ ok: true, pendingCount: (data.pendingFeedbackEvents || []).length }));
+    return true;
+  }
   if (msg.type === 'START_COLLECT') { runCollect(); sendResponse({ ok: true }); return; }
   if (msg.type === 'START_DELIVER') {
     chrome.storage.local.get(['sw_queue', 'sw_queue_index'], (d) => {
@@ -1103,4 +1127,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 });
+chrome.runtime.onStartup.addListener(() => { syncPendingFeedbackEvents().catch(() => {}); });
 try { chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {}); } catch (e) {}

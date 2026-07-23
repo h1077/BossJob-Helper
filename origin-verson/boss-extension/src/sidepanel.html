@@ -39,6 +39,11 @@
     </div>
   </section>
 
+  <section class="card">
+    <div class="card-h"><span>反馈检测</span><button class="mini-btn" id="btnRefreshFeedback">刷新反馈</button></div>
+    <div id="feedbackRefreshStatus" style="font-size:12px;color:#666;">仅扫描当前打开聊天页中的可见消息</div>
+  </section>
+
   <!-- ② AI 配置 -->
   <section class="card">
     <div class="card-h" data-toggle="aiCfg"><span>② AI 配置</span><span class="chev">▾</span></div>
@@ -246,6 +251,7 @@
 
   <div class="footer">© 2026 Boss海投助手 · Chrome Extension</div>
 
+  <script src="desktop-bridge.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
