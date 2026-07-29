@@ -1095,6 +1095,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'AI_REPLY') {
     (async () => {
       const cfg = defaultCfg(await getCfg());
+      if (!cfg.autoReply) {
+        sendResponse({ ok: false, error: '自动回复未开启' });
+        return;
+      }
       const hrMessage = String(msg.hrMessage || '').trim();
       const positionName = String(msg.positionName || '').trim();
       const strategy = ConversationStrategy.STRATEGIES[cfg.conversationStrategy]
