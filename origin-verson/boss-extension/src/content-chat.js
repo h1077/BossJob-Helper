@@ -8,6 +8,7 @@
   const INPUT_SELS = ['div#chat-input', '#chat-input', 'div.chat-input', '.chat-input[contenteditable]', '[contenteditable="true"]', 'textarea.input-area', 'textarea[placeholder]', 'textarea'];
   const SEND_SELS = ['button.btn-send', '.btn-send', 'button[class*="send"]'];
   const IMG_SELS = ['.btn-sendimg input[type=file]', '.toolbar input[type=file]', 'input[type=file]'];
+  const POSITION_SELS = ['.job-name', '[class*="job-name"]', '.job-title', '[class*="job-title"]', '[class*="position-name"]'];
 
   function findVisible(selList) {
     for (const sel of selList) {
@@ -56,6 +57,11 @@
 
   function inputText(el) {
     return (el.isContentEditable || el.getAttribute('contenteditable') === 'true') ? (el.textContent || '') : (el.value || '');
+  }
+
+  function currentPositionName() {
+    const position = findVisible(POSITION_SELS);
+    return (position && position.textContent ? position.textContent : '').replace(/\s+/g, ' ').trim().slice(0, 120);
   }
 
   function pressEnter(el) {
@@ -202,10 +208,8 @@
   let lastProcessedText = '';
 
   async function setupAutoReply() {
-    const cfg = await new Promise(res => {
-      chrome.storage.local.get(['autoReply', 'aiApiKey', 'aiApiUrl', 'aiModel', 'aiRole'], res);
-    });
-    if (!cfg.autoReply || !cfg.aiApiKey) return;
+    const cfg = await chrome.storage.local.get(['autoReply']);
+    if (!cfg.autoReply) return;
 
     const chatList = document.querySelector('.chat-message .im-list') ||
       document.querySelector('[class*="chat-list"]') ||
@@ -223,26 +227,23 @@
           if (!text || text === lastProcessedText) continue;
           lastProcessedText = text;
 
-          // 生成 AI 回复
           try {
-            const apiUrl = cfg.aiApiUrl || 'https://api.deepseek.com/v1/chat/completions';
-            const model = cfg.aiModel || 'deepseek-chat';
-            const sys = cfg.aiRole || '你是求职者，回复HR消息。要求：简短自然，40字以内，有来有往。';
-            const resp = await fetch(apiUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.aiApiKey },
-              body: JSON.stringify({ model, max_tokens: 150, temperature: 0.7, messages: [
-                { role: 'system', content: sys },
-                { role: 'user', content: 'HR说：' + text + '\n\n请回复：' }
-              ]})
+            const response = await chrome.runtime.sendMessage({
+              type: 'AI_REPLY',
+              hrMessage: text,
+              positionName: currentPositionName(),
             });
-            if (!resp.ok) return;
-            const data = await resp.json();
-            const reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-            if (reply && reply.trim()) {
-              await sendText(reply.trim());
+            if (!response || !response.ok) {
+              console.warn('[Boss海投助手] 自动回复生成失败：' + (response && response.error ? response.error : '后台未返回结果'));
+              continue;
             }
-          } catch (e) { /* AI reply failed, skip */ }
+            const reply = (response.reply || '').trim();
+            if (reply && reply.trim()) {
+              await sendText(reply);
+            }
+          } catch (e) {
+            console.warn('[Boss海投助手] 自动回复请求失败：' + (e && e.message ? e.message : '未知错误'));
+          }
         }
       }
     });
