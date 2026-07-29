@@ -391,6 +391,11 @@ def delete_job(rec_id):
     job = InterestedJob.query.filter_by(id=rec_id, user_id=user_id).first()
     if not job:
         return jsonify({'success': False, 'error': '岗位不存在'}), 404
+    if job.resume_version_id:
+        return jsonify({
+            'success': False,
+            'error': '该岗位已关联投递简历版本，不能删除，以免丢失历史投递记录',
+        }), 409
     db.session.delete(job)
     db.session.commit()
     return jsonify({'success': True})

@@ -120,11 +120,16 @@ async function loadJobs(page = 1) {
   if (!res.success) return;
 
   const tbody = document.querySelector('#jobs-table tbody');
-  tbody.innerHTML = res.data.jobs.map(j => `<tr>
+  tbody.innerHTML = res.data.jobs.map(j => {
+    const delivery = j.deliveryResume;
+    const deliveryLabel = delivery
+      ? `<span class="delivery-resume-link">V${delivery.versionNumber || '-'} · ${esc(delivery.title || '已记录')}</span>`
+      : '<span class="delivery-resume-empty">未登记</span>';
+    return `<tr>
     <td><input type="checkbox" class="batch-job-cb" value="${j.id}" onchange="updateBatchButton()"></td>
     <td>${esc(j.companyName)}</td><td>${esc(j.jobName)}</td><td>${esc(j.salary||'-')}</td>
     <td>${esc(j.location||'-')}</td><td><span class="badge badge-${j.status}">${statusLabel(j.status)}</span></td>
-    <td>${j.matchScore.score || 0}分</td><td>${fmtTime(j.collectedAt)}</td>
+    <td>${deliveryLabel}</td><td>${j.matchScore.score || 0}分</td><td>${fmtTime(j.collectedAt)}</td>
     <td>
       <select onchange="changeStatus(${j.id}, this.value)" style="font-size:12px;">
         <option value="">改状态</option>
@@ -133,7 +138,8 @@ async function loadJobs(page = 1) {
       <button class="btn btn-ghost btn-sm" onclick="deleteJob(${j.id})">🗑</button>
       <button class="btn btn-ghost btn-sm" onclick="showJobDetail(${j.id})">🔍</button>
     </td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 
   const pages = res.data.pages;
   const pag = document.getElementById('jobs-pagination');
@@ -184,11 +190,20 @@ async function changeStatus(id, status) {
 
 async function deleteJob(id) {
   if (!confirm('确定删除此岗位记录？')) return;
-  await fetch('/api/jobs/' + id, {
-    method: 'DELETE', headers: authHeaders(),
-  });
-  loadJobs(state.jobsPage);
-  loadDashboard();
+  try {
+    const response = await fetch('/api/jobs/' + id, {
+      method: 'DELETE', headers: authHeaders(),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      alert('删除岗位失败：' + (result.error || '请稍后重试'));
+      return;
+    }
+    loadJobs(state.jobsPage);
+    loadDashboard();
+  } catch (error) {
+    alert('删除岗位失败：无法连接桌面服务');
+  }
 }
 
 async function showJobDetail(id) {
@@ -212,6 +227,7 @@ async function showJobDetail(id) {
     <div class="modal-tabs" style="margin-top:16px;">
       <button class="modal-tab active" data-tab="jd">📋 JD详情</button>
       <button class="modal-tab" data-tab="timeline">🕐 状态历史</button>
+      <button class="modal-tab" data-tab="delivery">📎 投递简历</button>
       <button class="modal-tab" data-tab="strategy">🎯 简历策略</button>
     </div>
 
@@ -219,6 +235,9 @@ async function showJobDetail(id) {
       ${job.jd ? `<div style="margin-top:12px;font-size:13px;line-height:1.8;max-height:300px;overflow-y:auto;white-space:pre-wrap;">${esc(job.jd)}</div>` : '<p style="color:#999;padding:20px;">暂无 JD 信息</p>'}
     </div>
     <div class="modal-tab-panel hidden" id="modal-tab-timeline">
+      <div class="loading">加载中</div>
+    </div>
+    <div class="modal-tab-panel hidden" id="modal-tab-delivery">
       <div class="loading">加载中</div>
     </div>
     <div class="modal-tab-panel hidden" id="modal-tab-strategy">
@@ -261,8 +280,91 @@ async function showJobDetail(id) {
         const strategyPanel = overlay.querySelector('#modal-tab-strategy');
         await loadJobStrategy(strategyPanel, id);
       }
+
+      if (panelName === 'delivery') {
+        const deliveryPanel = overlay.querySelector('#modal-tab-delivery');
+        await loadJobDelivery(deliveryPanel, id, job);
+      }
     });
   });
+}
+
+async function loadJobDelivery(panel, jobId, job) {
+  const delivery = job.deliveryResume;
+  if (delivery) {
+    panel.innerHTML = `
+      <section class="delivery-record" aria-label="已记录的投递简历">
+        <h4>已记录投递简历</h4>
+        <p><strong>V${delivery.versionNumber || '-'}</strong> · ${esc(delivery.title || '未命名简历')}</p>
+        <p class="delivery-record-note">投递版本已经锁定，用于保留此次投递的真实内容。</p>
+      </section>`;
+    return;
+  }
+
+  panel.innerHTML = '<div class="loading">正在加载可用简历</div>';
+  try {
+    const response = await API('/resumes');
+    const resumes = response.success ? response.data : [];
+    if (!resumes.length) {
+      panel.innerHTML = `
+        <p class="delivery-empty">还没有可用于投递的简历。请先创建简历，再记录本次投递。</p>
+        <button class="btn btn-primary btn-sm" data-create-resume>创建简历</button>`;
+      panel.querySelector('[data-create-resume]').addEventListener('click', () => openResumeEditor());
+      return;
+    }
+
+    panel.innerHTML = `
+      <section class="delivery-record">
+        <h4>记录本次投递使用的简历</h4>
+        <p class="delivery-record-note">保存后会创建不可变快照，之后不能替换或删除关联记录。</p>
+        <div class="sf-field">
+          <label for="delivery-resume-select">选择简历</label>
+          <select id="delivery-resume-select">
+            ${resumes.map(r => `<option value="${r.id}">${esc(r.title)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="delivery-action-row">
+          <button class="btn btn-primary btn-sm" data-record-delivery>保存投递版本</button>
+          <span class="action-status" aria-live="polite"></span>
+        </div>
+      </section>`;
+    panel.querySelector('[data-record-delivery]').addEventListener('click', () => {
+      recordDeliveryResume(panel, jobId, job);
+    });
+  } catch (error) {
+    panel.innerHTML = '<p class="form-error" role="alert">无法加载简历。请确认桌面服务正在运行后重试。</p>';
+  }
+}
+
+async function recordDeliveryResume(panel, jobId, job) {
+  const select = panel.querySelector('#delivery-resume-select');
+  const button = panel.querySelector('[data-record-delivery]');
+  const status = panel.querySelector('.action-status');
+  if (!select || !button) return;
+
+  button.disabled = true;
+  status.textContent = '正在保存投递版本…';
+  try {
+    const response = await fetch('/api/jobs/' + jobId + '/delivery-resume', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ resumeId: Number(select.value) }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      status.textContent = '保存失败：' + (result.error || '请稍后重试');
+      status.classList.add('is-error');
+      return;
+    }
+    job.deliveryResume = result.data.deliveryResume;
+    await loadJobDelivery(panel, jobId, result.data);
+    loadJobs(state.jobsPage);
+  } catch (error) {
+    status.textContent = '保存失败：无法连接桌面服务';
+    status.classList.add('is-error');
+  } finally {
+    if (button.isConnected) button.disabled = false;
+  }
 }
 
 // Resumes
@@ -334,7 +436,8 @@ async function loadResumes() {
     const previewHtml = buildResumeCardPreview(r);
     return `<div class="resume-card" onclick="openResumeEditor(${r.id})">
       <div class="resume-card-actions">
-        <button class="btn-del" onclick="event.stopPropagation();deleteResume(${r.id})">🗑</button>
+        <button type="button" class="btn-history" title="版本历史" aria-label="查看版本历史" onclick="event.stopPropagation();showResumeVersions(${r.id}, this.closest('.resume-card').querySelector('.resume-card-title').textContent)">版本</button>
+        <button type="button" class="btn-del" title="删除简历" aria-label="删除简历" onclick="event.stopPropagation();deleteResume(${r.id})">🗑</button>
       </div>
       <div class="resume-card-preview">${previewHtml}</div>
       <div class="resume-card-body">
@@ -347,6 +450,121 @@ async function loadResumes() {
       </div>
     </div>`;
   }).join('');
+}
+
+function showResumeVersions(resumeId, title) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal resume-version-modal" role="dialog" aria-modal="true" aria-labelledby="resume-version-title" tabindex="-1">
+      <button class="modal-close" type="button" aria-label="关闭版本历史" data-close-modal>✕</button>
+      <h3 id="resume-version-title">${esc(title)} · 版本历史</h3>
+      <div class="version-create-row">
+        <div class="sf-field">
+          <label for="resume-version-note">版本备注（可选）</label>
+          <input id="resume-version-note" type="text" maxlength="200" placeholder="例如：投递前定稿">
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" data-create-version>保存当前版本</button>
+      </div>
+      <p class="delivery-record-note">恢复版本前，系统会先保存当前内容为保护快照。</p>
+      <div class="version-list" data-version-list aria-live="polite"><div class="loading">加载版本历史</div></div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const dialog = overlay.querySelector('.resume-version-modal');
+  const close = () => {
+    document.removeEventListener('keydown', onKeydown);
+    overlay.remove();
+  };
+  const onKeydown = event => { if (event.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKeydown);
+  overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+  overlay.querySelector('[data-close-modal]').addEventListener('click', close);
+  overlay.querySelector('[data-create-version]').addEventListener('click', () => {
+    createManualResumeVersion(overlay, resumeId);
+  });
+  dialog.focus();
+  loadResumeVersions(overlay, resumeId);
+}
+
+function resumeVersionSourceLabel(source) {
+  const labels = {
+    manual: '手动保存',
+    delivery: '投递快照',
+    before_restore: '恢复前保护快照',
+  };
+  return labels[source] || source || '版本快照';
+}
+
+async function loadResumeVersions(overlay, resumeId) {
+  const list = overlay.querySelector('[data-version-list]');
+  try {
+    const response = await API('/resumes/' + resumeId + '/versions');
+    if (!response.success) {
+      list.innerHTML = `<p class="form-error" role="alert">无法加载版本历史：${esc(response.error || '请稍后重试')}</p>`;
+      return;
+    }
+    if (!response.data.length) {
+      list.innerHTML = '<p class="version-empty">暂无版本。保存当前版本后，可随时恢复到这一刻。</p>';
+      return;
+    }
+    list.innerHTML = response.data.map(version => `
+      <article class="version-item">
+        <div class="version-item-copy">
+          <div><strong>V${version.versionNumber}</strong> <span class="version-source">${esc(resumeVersionSourceLabel(version.source))}</span></div>
+          <p>${esc(version.note || '无备注')}</p>
+          <time>${version.createdAt ? new Date(version.createdAt).toLocaleString('zh-CN') : '-'}</time>
+        </div>
+        <button type="button" class="btn btn-sm" data-restore-version="${version.id}" data-version-number="${version.versionNumber}">恢复</button>
+      </article>`).join('');
+    list.querySelectorAll('[data-restore-version]').forEach(button => {
+      button.addEventListener('click', () => {
+        restoreResumeVersion(overlay, resumeId, Number(button.dataset.restoreVersion), button.dataset.versionNumber);
+      });
+    });
+  } catch (error) {
+    list.innerHTML = '<p class="form-error" role="alert">无法加载版本历史。请确认桌面服务正在运行后重试。</p>';
+  }
+}
+
+async function createManualResumeVersion(overlay, resumeId) {
+  const button = overlay.querySelector('[data-create-version]');
+  const note = overlay.querySelector('#resume-version-note');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/resumes/' + resumeId + '/versions', {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify({ note: note.value.trim() }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      alert('保存版本失败：' + (result.error || '请稍后重试'));
+      return;
+    }
+    note.value = '';
+    await loadResumeVersions(overlay, resumeId);
+  } catch (error) {
+    alert('保存版本失败：无法连接桌面服务');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function restoreResumeVersion(overlay, resumeId, versionId, versionNumber) {
+  if (!confirm(`恢复到 V${versionNumber}？当前内容会先自动保存为保护快照。`)) return;
+  try {
+    const response = await fetch(`/api/resumes/${resumeId}/versions/${versionId}/restore`, {
+      method: 'POST', headers: authHeaders(),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      alert('恢复版本失败：' + (result.error || '请稍后重试'));
+      return;
+    }
+    await loadResumeVersions(overlay, resumeId);
+    loadResumes();
+  } catch (error) {
+    alert('恢复版本失败：无法连接桌面服务');
+  }
 }
 
 // ── 简历策略 ──
@@ -458,8 +676,17 @@ async function autoFillStrategy(jobId) {
 
 async function deleteResume(id) {
   if (!confirm('确定删除此简历？')) return;
-  await fetch('/api/resumes/' + id, { method: 'DELETE', headers: authHeaders() });
-  loadResumes();
+  try {
+    const response = await fetch('/api/resumes/' + id, { method: 'DELETE', headers: authHeaders() });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      alert('删除简历失败：' + (result.error || '请稍后重试'));
+      return;
+    }
+    loadResumes();
+  } catch (error) {
+    alert('删除简历失败：无法连接桌面服务');
+  }
 }
 
 // ── AI Provider Presets ──

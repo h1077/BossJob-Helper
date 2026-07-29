@@ -148,6 +148,19 @@ class JobResumeDeliveryTests(unittest.TestCase):
         self.assertEqual(deleted.status_code, 409)
         self.assertFalse(deleted.get_json()["success"])
 
+    def test_delivery_linked_job_cannot_be_deleted(self):
+        resume = self.create_resume()
+        job = self.create_job()
+        self.client.post(
+            f"/api/jobs/{job['id']}/delivery-resume",
+            headers=self.headers,
+            json={"resumeId": resume["id"]},
+        )
+
+        deleted = self.client.delete(f"/api/jobs/{job['id']}", headers=self.headers)
+        self.assertEqual(deleted.status_code, 409)
+        self.assertFalse(deleted.get_json()["success"])
+
 
 if __name__ == "__main__":
     unittest.main()
