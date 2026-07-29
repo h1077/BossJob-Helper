@@ -21,7 +21,7 @@ const API = (path, opts = {}) => fetch('/api' + path, {
   ...opts,
 }).then(r => r.json());
 
-const state = { currentPage: 'dashboard', jobsPage: 1, editingResumeId: null };
+const state = { currentPage: 'dashboard', jobsPage: 1 };
 
 // Navigation
 document.querySelectorAll('.nav-item').forEach(el => {
@@ -266,6 +266,13 @@ async function showJobDetail(id) {
 }
 
 // Resumes
+function openResumeEditor(resumeId = null) {
+  const suffix = Number.isInteger(resumeId) && resumeId > 0 ? `#${resumeId}` : '';
+  window.location.assign(`/editor.html${suffix}`);
+}
+
+document.getElementById('btn-new-resume').addEventListener('click', () => openResumeEditor());
+
 function buildResumeCardPreview(r) {
   const sd = r.structuredData;
   if (!sd || !Object.keys(sd).length) {
@@ -325,7 +332,7 @@ async function loadResumes() {
     const date = r.updatedAt ? new Date(r.updatedAt).toLocaleDateString('zh-CN', {month:'short',day:'numeric'}) : '';
     const typeLabel = r.type === 'optimized' ? '优化版' : r.type === 'targeted' ? '定制版' : '原始版';
     const previewHtml = buildResumeCardPreview(r);
-    return `<div class="resume-card" onclick="location.href='/editor.html#${r.id}'">
+    return `<div class="resume-card" onclick="openResumeEditor(${r.id})">
       <div class="resume-card-actions">
         <button class="btn-del" onclick="event.stopPropagation();deleteResume(${r.id})">🗑</button>
       </div>
@@ -705,7 +712,7 @@ document.getElementById('btn-batch-customize').addEventListener('click', async (
       ${data.map(r => r.success
         ? `<div style="font-size:13px;padding:6px 8px;margin:2px 0;background:#f0fdf4;border-radius:4px;">
             ✅ <strong>${esc(r.companyName)}</strong> — ${esc(r.jobName)}
-            → <a href="javascript:editResume(${r.resumeId})" style="color:var(--primary);">${esc(r.resumeTitle)}</a>
+            → <a href="/editor.html#${r.resumeId}" style="color:var(--primary);">${esc(r.resumeTitle)}</a>
           </div>`
         : `<div style="font-size:13px;padding:6px 8px;margin:2px 0;background:#fee2e2;border-radius:4px;">
             ❌ ${esc(r.error || '失败')}
@@ -717,60 +724,6 @@ document.getElementById('btn-batch-customize').addEventListener('click', async (
   });
 });
 
-
-// ── Hash 路由: #resume/3 → 全屏编辑简历 #3 ──
-function handleHash() {
-  const hash = location.hash.replace('#', '');
-  const match = hash.match(/^resume\/(\d+|new)$/);
-
-  if (match) {
-    const resumeId = match[1] === 'new' ? null : parseInt(match[1]);
-
-    // 进入沉浸式编辑模式
-    document.body.classList.add('editor-fullscreen');
-
-    const editor = document.getElementById('resume-editor');
-    const topBar = document.getElementById('resume-top-bar');
-
-    if (editor) editor.classList.remove('hidden');
-    if (topBar) { topBar.style.display = ''; topBar.style.justifyContent = 'flex-start'; }
-
-    // 导航：切换到简历管理页
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    const resumeNav = document.querySelector('[data-page="resumes"]');
-    if (resumeNav) resumeNav.classList.add('active');
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    const resumePage = document.getElementById('page-resumes');
-    if (resumePage) resumePage.classList.add('active');
-
-    // 加载编辑（延迟确保依赖就绪）
-    if (resumeId) {
-      state.editingResumeId = resumeId;
-      if (typeof editResume === 'function') { editResume(resumeId); }
-      else { setTimeout(() => editResume(resumeId), 200); }
-    } else {
-      state.editingResumeId = null;
-      if (typeof _structuredData !== 'undefined') {
-        _structuredData = getDefaultStructuredData();
-        if (typeof switchEditorMode === 'function') switchEditorMode('structured');
-      }
-    }
-  }
-}
-
-window.addEventListener('hashchange', handleHash);
-
-// Back button in editor
-function backToResumeList() {
-  location.hash = '';
-  document.body.classList.remove('editor-fullscreen');
-  const editor = document.getElementById('resume-editor');
-  const topBar = document.getElementById('resume-top-bar');
-  if (editor) editor.classList.add('hidden');
-  if (topBar) topBar.style.display = 'none';
-  state.editingResumeId = null;
-  loadResumes();
-}
 
 // Initial load
 loadDashboard();
