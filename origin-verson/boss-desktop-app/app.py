@@ -38,8 +38,10 @@ def _run_migrations(inspector):
         db.session.execute(_text("ALTER TABLE interested_jobs ADD COLUMN delivery_url VARCHAR(500)"))
         print('[migration] + interested_jobs.delivery_url')
 
-    # 新表：position_strategies / strategy_rules（由 create_all 处理，这里兜底）
-    if not _has_table('position_strategies'):
+    # 新表：由 create_all 处理，这里对已有数据库启动路径兜底。
+    if any(not _has_table(table) for table in (
+        'position_strategies', 'strategy_rules', 'resume_versions',
+    )):
         db.create_all()
         print('[migration] + tables created via create_all')
 

@@ -4,8 +4,9 @@
 import os
 import tempfile
 from flask import Blueprint, request, jsonify
-from models import db, Resume
+from models import db, Resume, ResumeVersion
 from utils.auth import login_required
+from utils.resume_versions import create_resume_snapshot
 
 resumes_bp = Blueprint('resumes', __name__, url_prefix='/api/resumes')
 
@@ -217,6 +218,90 @@ def update_structured(resume_id):
         'success': True,
         'data': resume.to_dict(),
         'generatedContent': resume.content,
+    })
+
+
+# ── 简历版本快照 ──
+
+def _get_owned_resume(resume_id, user_id):
+    return Resume.query.filter_by(id=resume_id, user_id=user_id).first()
+
+
+@resumes_bp.route('/<int:resume_id>/versions', methods=['GET'])
+@login_required
+def list_resume_versions(resume_id):
+    user = request.current_user
+    resume = _get_owned_resume(resume_id, user.id)
+    if not resume:
+        return jsonify({'success': False, 'error': '简历不存在'}), 404
+
+    versions = ResumeVersion.query.filter_by(
+        resume_id=resume.id, user_id=user.id,
+    ).order_by(ResumeVersion.version_number.desc()).all()
+    return jsonify({'success': True, 'data': [version.to_dict(include_content=False) for version in versions]})
+
+
+@resumes_bp.route('/<int:resume_id>/versions', methods=['POST'])
+@login_required
+def create_resume_version(resume_id):
+    user = request.current_user
+    resume = _get_owned_resume(resume_id, user.id)
+    if not resume:
+        return jsonify({'success': False, 'error': '简历不存在'}), 404
+
+    data = request.get_json(silent=True) or {}
+    note = str(data.get('note') or '').strip()
+    snapshot = create_resume_snapshot(resume, user.id, 'manual', note)
+    db.session.add(snapshot)
+    db.session.commit()
+    return jsonify({'success': True, 'data': snapshot.to_dict()})
+
+
+@resumes_bp.route('/<int:resume_id>/versions/<int:version_id>', methods=['GET'])
+@login_required
+def get_resume_version(resume_id, version_id):
+    user = request.current_user
+    resume = _get_owned_resume(resume_id, user.id)
+    if not resume:
+        return jsonify({'success': False, 'error': '简历不存在'}), 404
+
+    version = ResumeVersion.query.filter_by(
+        id=version_id, resume_id=resume.id, user_id=user.id,
+    ).first()
+    if not version:
+        return jsonify({'success': False, 'error': '简历版本不存在'}), 404
+    return jsonify({'success': True, 'data': version.to_dict()})
+
+
+@resumes_bp.route('/<int:resume_id>/versions/<int:version_id>/restore', methods=['POST'])
+@login_required
+def restore_resume_version(resume_id, version_id):
+    user = request.current_user
+    resume = _get_owned_resume(resume_id, user.id)
+    if not resume:
+        return jsonify({'success': False, 'error': '简历不存在'}), 404
+
+    version = ResumeVersion.query.filter_by(
+        id=version_id, resume_id=resume.id, user_id=user.id,
+    ).first()
+    if not version:
+        return jsonify({'success': False, 'error': '简历版本不存在'}), 404
+
+    checkpoint = create_resume_snapshot(
+        resume,
+        user.id,
+        'before_restore',
+        f'恢复 V{version.version_number} 前的保护快照',
+    )
+    db.session.add(checkpoint)
+    resume.title = version.title
+    resume.content = version.content
+    resume.structured_data = version.structured_data
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'data': resume.to_dict(),
+        'restoredVersion': version.to_dict(include_content=False),
     })
 
 

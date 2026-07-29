@@ -97,6 +97,42 @@ class Resume(db.Model):
         }
 
 
+class ResumeVersion(db.Model):
+    """简历的不可变内容快照。"""
+    __tablename__ = 'resume_versions'
+    __table_args__ = (
+        db.UniqueConstraint('resume_id', 'version_number', name='uq_resume_version_number'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    resume_id = db.Column(db.Integer, db.ForeignKey('resumes.id'), nullable=False, index=True)
+    version_number = db.Column(db.Integer, nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    structured_data = db.Column(db.JSON, nullable=True)
+    source = db.Column(db.String(30), nullable=False, default='manual')
+    note = db.Column(db.String(200), nullable=False, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def to_dict(self, include_content=True):
+        data = {
+            'id': self.id,
+            'resumeId': self.resume_id,
+            'versionNumber': self.version_number,
+            'title': self.title,
+            'source': self.source,
+            'note': self.note or '',
+            'createdAt': self.created_at.isoformat() if self.created_at else None,
+        }
+        if include_content:
+            data.update({
+                'content': self.content,
+                'structuredData': self.structured_data if isinstance(self.structured_data, dict) else None,
+            })
+        return data
+
+
 class InterestedJob(db.Model):
     __tablename__ = 'interested_jobs'
 
