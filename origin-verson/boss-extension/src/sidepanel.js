@@ -96,11 +96,21 @@ document.querySelectorAll('#activityChips .chip').forEach(chip => {
 
 // 策略选择器
 let conversationStrategy = 'balanced';
+function applyConversationStrategy(value) {
+  const inputs = [...document.querySelectorAll('.strategy-card input')];
+  const input = inputs.find(item => item.value === value)
+    || inputs.find(item => item.value === 'balanced');
+  conversationStrategy = input ? input.value : 'balanced';
+  document.querySelectorAll('.strategy-card').forEach(card => card.classList.remove('active'));
+  if (input) {
+    input.checked = true;
+    input.closest('.strategy-card').classList.add('active');
+  }
+}
 document.querySelectorAll('.strategy-card').forEach(card => {
   card.addEventListener('click', () => {
-    document.querySelectorAll('.strategy-card').forEach(c => c.classList.remove('active'));
-    card.classList.add('active');
-    conversationStrategy = card.querySelector('input').value;
+    const input = card.querySelector('input');
+    applyConversationStrategy(input ? input.value : 'balanced');
   });
 });
 
@@ -577,12 +587,7 @@ function loadCfg() {
     $('enableCompanyCheck').checked = d.enableCompanyCheck !== false;
     $('autoReply').checked = d.autoReply === true;
     if (d.aiRole) $('aiRole').value = d.aiRole;
-    if (d.conversationStrategy) {
-      conversationStrategy = d.conversationStrategy;
-      document.querySelectorAll('.strategy-card').forEach(c => c.classList.remove('active'));
-      const stratCard = document.querySelector('.strategy-card input[value="' + d.conversationStrategy + '"]');
-      if (stratCard) stratCard.closest('.strategy-card').classList.add('active');
-    }
+    applyConversationStrategy(d.conversationStrategy);
     if (d.recruiterActivityStatus) {
       selectedActivity = d.recruiterActivityStatus;
       document.querySelectorAll('#activityChips .chip').forEach(c => {
