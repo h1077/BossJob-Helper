@@ -25,7 +25,7 @@
     },
     {
       "matches": ["*://*.zhipin.com/web/geek/chat*"],
-      "js": ["src/selectors.js", "src/feedback-events.js", "src/content-chat.js"],
+      "js": ["src/selectors.js", "src/conversation-strategy.js", "src/feedback-events.js", "src/content-chat.js"],
       "run_at": "document_idle"
     }
   ]

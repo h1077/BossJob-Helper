@@ -1,5 +1,5 @@
 // ===== Boss海投助手 Service Worker：编排 收集→投递→跨页面接力 =====
-importScripts('/src/selectors.js', '/src/desktop-bridge.js', '/src/feedback-events.js');
+importScripts('/src/selectors.js', '/src/conversation-strategy.js', '/src/desktop-bridge.js', '/src/feedback-events.js');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (a, b) => sleep(a + Math.random() * (b - a));
@@ -228,13 +228,6 @@ async function setCachedGreeting(key, text) {
   await chrome.storage.local.set({ [key]: { text, time: Date.now() } });
 }
 
-// ── 策略注入 ──
-const STRATEGY_NOTES = {
-  aggressive: '主动出击：快速问清待遇关键点，满意后积极约面。',
-  balanced: '有来有往：自然聊天，问清楚细节后再表态。',
-  conservative: '宁缺毋滥：严格筛选，多问挑剔，对不合理条件表达疑虑。'
-};
-
 // ── 招呼语生成（带缓存 + 重试 + 降级兜底）──
 const GREETING_MIN_LENGTH = 30;   // 招呼语最少30字
 const GREETING_MAX_RETRIES = 2;   // 最多重试2次（共3次尝试）
@@ -247,7 +240,8 @@ async function generateGreeting(cfg, job, jd) {
   const resumeText = (cfg.resumeText || '').trim();
   const resumeAnalysis = (cfg.resumeAnalysis || '').trim();
   const smartPrompt = (cfg.smartGreetingPrompt || '').trim();
-  const strategy = STRATEGY_NOTES[cfg.conversationStrategy] || STRATEGY_NOTES.balanced;
+  const strategy = ConversationStrategy.STRATEGIES[cfg.conversationStrategy]?.instruction
+    || ConversationStrategy.STRATEGIES.balanced.instruction;
 
   // ── 构建 prompt（自然语言，避免模板化指令导致模型偷懒）──
   function buildSystemPrompt(retryLevel) {
@@ -1098,6 +1092,37 @@ async function runDeliver() {
 
 // ── 消息入口 ──
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'AI_REPLY') {
+    (async () => {
+      const cfg = defaultCfg(await getCfg());
+      const hrMessage = String(msg.hrMessage || '').trim();
+      const positionName = String(msg.positionName || '').trim();
+      const strategy = ConversationStrategy.STRATEGIES[cfg.conversationStrategy]
+        ? cfg.conversationStrategy
+        : 'balanced';
+      const phase = ConversationStrategy.detectPhase(hrMessage);
+      const prompt = ConversationStrategy.buildPrompt(
+        phase,
+        hrMessage,
+        positionName,
+        cfg.resumeText || '',
+        cfg.resumeAnalysis || '',
+        strategy
+      );
+      const reply = (await callAISmart(cfg, [
+        { role: 'system', content: prompt.system },
+        { role: 'user', content: prompt.user },
+      ], 200, 0.7) || '').trim();
+      if (!reply) throw new Error('AI 未返回可发送的回复');
+      log('自动回复：阶段 ' + phase + '，策略 ' + strategy, 'info');
+      sendResponse({ ok: true, reply });
+    })().catch(error => {
+      const message = error && error.message ? error.message : 'AI 回复失败';
+      log('自动回复失败：' + message, 'warn');
+      sendResponse({ ok: false, error: message });
+    });
+    return true;
+  }
   if (msg.type === 'CHAT_FEEDBACK_EVENT') { saveFeedbackEvent(msg.event).then(data => sendResponse({ ok: true, data })); return true; }
   if (msg.type === 'SYNC_PENDING_FEEDBACK') { syncPendingFeedbackEvents().then(data => sendResponse({ ok: true, data })); return true; }
   if (msg.type === 'GET_PENDING_FEEDBACK_COUNT') {
