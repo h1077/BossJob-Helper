@@ -175,6 +175,13 @@ def delete_resume(resume_id):
     resume = Resume.query.filter_by(id=resume_id, user_id=user.id).first()
     if not resume:
         return jsonify({'success': False, 'error': '简历不存在'}), 404
+    from models import InterestedJob
+    if InterestedJob.query.filter_by(user_id=user.id, resume_id=resume.id).first():
+        return jsonify({
+            'success': False,
+            'error': '该简历已关联投递记录，不能删除，以免丢失历史投递版本',
+        }), 409
+    ResumeVersion.query.filter_by(resume_id=resume.id, user_id=user.id).delete()
     db.session.delete(resume)
     db.session.commit()
     return jsonify({'success': True})

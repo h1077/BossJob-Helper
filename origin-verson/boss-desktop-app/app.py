@@ -37,6 +37,12 @@ def _run_migrations(inspector):
     if not _has_column('interested_jobs', 'delivery_url'):
         db.session.execute(_text("ALTER TABLE interested_jobs ADD COLUMN delivery_url VARCHAR(500)"))
         print('[migration] + interested_jobs.delivery_url')
+    if not _has_column('interested_jobs', 'resume_id'):
+        db.session.execute(_text("ALTER TABLE interested_jobs ADD COLUMN resume_id INTEGER"))
+        print('[migration] + interested_jobs.resume_id')
+    if not _has_column('interested_jobs', 'resume_version_id'):
+        db.session.execute(_text("ALTER TABLE interested_jobs ADD COLUMN resume_version_id INTEGER"))
+        print('[migration] + interested_jobs.resume_version_id')
 
     # 新表：由 create_all 处理，这里对已有数据库启动路径兜底。
     if any(not _has_table(table) for table in (

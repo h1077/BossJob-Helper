@@ -156,6 +156,8 @@ class InterestedJob(db.Model):
     status_updated_at = db.Column(db.DateTime, nullable=True)
     status_notes = db.Column(db.Text, nullable=True)
     delivery_url = db.Column(db.String(500), nullable=True)
+    resume_id = db.Column(db.Integer, db.ForeignKey('resumes.id'), nullable=True, index=True)
+    resume_version_id = db.Column(db.Integer, db.ForeignKey('resume_versions.id'), nullable=True, index=True)
     source_url = db.Column(db.String(500))
     match_score = db.Column(db.Integer, default=0)
     match_level = db.Column(db.String(50))
@@ -168,6 +170,9 @@ class InterestedJob(db.Model):
     collected_at = db.Column(db.BigInteger)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    resume = db.relationship('Resume', foreign_keys=[resume_id])
+    resume_version = db.relationship('ResumeVersion', foreign_keys=[resume_version_id])
 
     def to_dict(self):
         return {
@@ -190,6 +195,12 @@ class InterestedJob(db.Model):
             'statusUpdatedAt': self.status_updated_at.isoformat() if self.status_updated_at else None,
             'statusNotes': self.status_notes,
             'deliveryUrl': self.delivery_url,
+            'deliveryResume': {
+                'resumeId': self.resume_id,
+                'versionId': self.resume_version_id,
+                'versionNumber': self.resume_version.version_number,
+                'title': self.resume_version.title,
+            } if self.resume_version else None,
             'sourceUrl': self.source_url,
             'hrName': self.hr_name,
             'hrTitle': self.hr_title,

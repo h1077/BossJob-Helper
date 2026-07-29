@@ -6,8 +6,9 @@ import io
 import json
 from datetime import datetime
 from flask import Blueprint, request, jsonify, Response
-from models import db, InterestedJob
+from models import db, InterestedJob, Resume
 from utils.auth import login_required
+from utils.resume_versions import create_resume_snapshot
 
 jobs_bp = Blueprint('jobs', __name__, url_prefix='/api/jobs')
 
@@ -253,6 +254,47 @@ def update_job_status(rec_id):
             'label': STATUS_LABELS.get(job.status, job.status),
         }
     })
+
+
+@jobs_bp.route('/<int:rec_id>/delivery-resume', methods=['POST'])
+@login_required
+def record_delivery_resume(rec_id):
+    """Create and persist the immutable resume snapshot used for one delivery."""
+    user_id = request.current_user.id
+    job = InterestedJob.query.filter_by(id=rec_id, user_id=user_id).first()
+    if not job:
+        return jsonify({'success': False, 'error': '岗位不存在'}), 404
+
+    data = request.get_json(silent=True) or {}
+    try:
+        resume_id = int(data.get('resumeId') or data.get('resume_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': '缺少有效的简历 ID'}), 400
+
+    resume = Resume.query.filter_by(id=resume_id, user_id=user_id).first()
+    if not resume:
+        return jsonify({'success': False, 'error': '简历不存在'}), 404
+
+    if job.resume_version_id:
+        if job.resume_id != resume.id:
+            return jsonify({'success': False, 'error': '该投递已关联其他简历版本，不能修改历史记录'}), 409
+        return jsonify({'success': True, 'data': job.to_dict(), 'existing': True})
+
+    snapshot = create_resume_snapshot(
+        resume,
+        user_id,
+        'delivery',
+        f'投递至 {job.company_name} · {job.job_name}',
+    )
+    db.session.add(snapshot)
+    db.session.flush()
+    job.resume_id = resume.id
+    job.resume_version_id = snapshot.id
+    if job.status == 'not_applied':
+        job.status = 'applied'
+        job.status_updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True, 'data': job.to_dict(), 'existing': False})
 
 
 # ── 看板 / 统计 / 时间线 ──
