@@ -71,6 +71,7 @@ class Resume(db.Model):
     analysis_result = db.Column(db.JSON, nullable=True)
     ats_data = db.Column(db.JSON, nullable=True)
     structured_data = db.Column(db.JSON, nullable=True)
+    template_config = db.Column(db.JSON, nullable=True)
     # structured_data 结构:
     # { name, hometown, email, phone, political_status, homepage, address, portfolio,
     #   education[{school,major,degree,period,gpa,highlights}],
@@ -82,6 +83,7 @@ class Resume(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
+        from utils.resume_templates import normalize_template_config
         return {
             'id': self.id,
             'title': self.title,
@@ -92,6 +94,7 @@ class Resume(db.Model):
             'analysisResult': self.analysis_result if isinstance(self.analysis_result, dict) else None,
             'atsData': self.ats_data if isinstance(self.ats_data, dict) else None,
             'structuredData': self.structured_data if isinstance(self.structured_data, dict) else None,
+            'templateConfig': normalize_template_config(self.template_config),
             'createdAt': self.created_at.isoformat() if self.created_at else None,
             'updatedAt': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -111,11 +114,13 @@ class ResumeVersion(db.Model):
     title = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
     structured_data = db.Column(db.JSON, nullable=True)
+    template_config = db.Column(db.JSON, nullable=True)
     source = db.Column(db.String(30), nullable=False, default='manual')
     note = db.Column(db.String(200), nullable=False, default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def to_dict(self, include_content=True):
+        from utils.resume_templates import normalize_template_config
         data = {
             'id': self.id,
             'resumeId': self.resume_id,
@@ -123,6 +128,7 @@ class ResumeVersion(db.Model):
             'title': self.title,
             'source': self.source,
             'note': self.note or '',
+            'templateConfig': normalize_template_config(self.template_config),
             'createdAt': self.created_at.isoformat() if self.created_at else None,
         }
         if include_content:

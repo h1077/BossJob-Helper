@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify
 from models import db, Resume, ResumeVersion
 from utils.auth import login_required
 from utils.resume_versions import create_resume_snapshot
+from utils.resume_templates import normalize_template_config
 
 resumes_bp = Blueprint('resumes', __name__, url_prefix='/api/resumes')
 
@@ -117,6 +118,9 @@ def create_resume():
     title = (data.get('title') or '').strip()
     content = (data.get('content') or '').strip()
     structured_data = data.get('structuredData') or data.get('structured_data')
+    template_config = normalize_template_config(
+        data.get('templateConfig', data.get('template_config'))
+    )
 
     # 如果提供了结构化数据但没有纯文本 content，自动生成
     if structured_data and not content:
@@ -134,6 +138,7 @@ def create_resume():
         analysis_result=data.get('analysisResult'),
         ats_data=data.get('atsData'),
         structured_data=structured_data,
+        template_config=template_config,
     )
     db.session.add(resume)
     db.session.commit()
@@ -163,6 +168,11 @@ def update_resume(resume_id):
         # 如果只传了结构化数据，自动更新纯文本内容
         if sd and not data.get('content'):
             resume.content = _structured_to_text(sd)
+
+    if 'templateConfig' in data or 'template_config' in data:
+        resume.template_config = normalize_template_config(
+            data.get('templateConfig', data.get('template_config'))
+        )
 
     db.session.commit()
     return jsonify({'success': True, 'data': resume.to_dict()})
@@ -304,6 +314,7 @@ def restore_resume_version(resume_id, version_id):
     resume.title = version.title
     resume.content = version.content
     resume.structured_data = version.structured_data
+    resume.template_config = normalize_template_config(version.template_config)
     db.session.commit()
     return jsonify({
         'success': True,

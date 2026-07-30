@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from models import ResumeVersion
+from utils.resume_templates import normalize_template_config
 
 
 def create_resume_snapshot(resume, user_id, source, note=''):
@@ -19,6 +20,7 @@ def create_resume_snapshot(resume, user_id, source, note=''):
         title=resume.title,
         content=resume.content,
         structured_data=deepcopy(resume.structured_data) if isinstance(resume.structured_data, dict) else None,
+        template_config=normalize_template_config(resume.template_config),
         source=source,
         note=(note or '')[:200],
     )

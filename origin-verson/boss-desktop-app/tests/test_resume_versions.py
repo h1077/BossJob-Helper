@@ -46,6 +46,7 @@ class ResumeVersionApiTests(unittest.TestCase):
                 "title": title,
                 "content": content,
                 "structuredData": {"name": "张三", "projects": []},
+                "templateConfig": {"templateId": "project_focus", "accentColor": "#9333ea"},
             },
         )
         self.assertEqual(response.status_code, 200)
@@ -61,6 +62,7 @@ class ResumeVersionApiTests(unittest.TestCase):
         )
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.get_json()["data"]["versionNumber"], 1)
+        self.assertEqual(first.get_json()["data"]["templateConfig"]["templateId"], "project_focus")
 
         updated = self.client.put(
             f"/api/resumes/{resume['id']}",
@@ -85,6 +87,7 @@ class ResumeVersionApiTests(unittest.TestCase):
         self.assertEqual(first_detail.get_json()["data"]["title"], "原始简历")
         self.assertEqual(first_detail.get_json()["data"]["content"], "原始内容")
         self.assertEqual(first_detail.get_json()["data"]["structuredData"]["name"], "张三")
+        self.assertEqual(first_detail.get_json()["data"]["templateConfig"]["accentColor"], "#9333ea")
 
     def test_restore_creates_a_protective_snapshot_of_current_content(self):
         resume = self.create_resume()

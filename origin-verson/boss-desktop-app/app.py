@@ -22,10 +22,13 @@ def _run_migrations(inspector):
     def _has_table(name):
         return inspector.has_table(name)
 
-    # Resume 表：structured_data 列
+    # Resume 表：结构化内容与模板配置列
     if not _has_column('resumes', 'structured_data'):
         db.session.execute(_text("ALTER TABLE resumes ADD COLUMN structured_data JSON"))
         print('[migration] + resumes.structured_data')
+    if not _has_column('resumes', 'template_config'):
+        db.session.execute(_text("ALTER TABLE resumes ADD COLUMN template_config JSON"))
+        print('[migration] + resumes.template_config')
 
     # InterestedJob 表：status_updated_at / status_notes / delivery_url
     if not _has_column('interested_jobs', 'status_updated_at'):
@@ -50,6 +53,10 @@ def _run_migrations(inspector):
     )):
         db.create_all()
         print('[migration] + tables created via create_all')
+
+    if _has_table('resume_versions') and not _has_column('resume_versions', 'template_config'):
+        db.session.execute(_text("ALTER TABLE resume_versions ADD COLUMN template_config JSON"))
+        print('[migration] + resume_versions.template_config')
 
     db.session.commit()
 
