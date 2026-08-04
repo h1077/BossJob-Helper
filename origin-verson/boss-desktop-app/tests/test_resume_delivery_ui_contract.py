@@ -29,6 +29,10 @@ class ResumeDeliveryUiContractTests(unittest.TestCase):
         self.assertIn('删除岗位失败', self.script)
         self.assertIn('删除简历失败', self.script)
 
+    def test_delivery_record_links_to_resume_editor(self):
+        self.assertIn('查看这份简历', self.script)
+        self.assertIn('/editor.html#', self.script)
+
 
 if __name__ == '__main__':
     unittest.main()

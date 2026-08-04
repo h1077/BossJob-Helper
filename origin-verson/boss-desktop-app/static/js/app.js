@@ -297,6 +297,7 @@ async function loadJobDelivery(panel, jobId, job) {
         <h4>已记录投递简历</h4>
         <p><strong>V${delivery.versionNumber || '-'}</strong> · ${esc(delivery.title || '未命名简历')}</p>
         <p class="delivery-record-note">投递版本已经锁定，用于保留此次投递的真实内容。</p>
+        ${delivery.resumeId ? `<p><a href="/editor.html#${delivery.resumeId}" class="btn btn-ghost btn-sm" style="display:inline-block;margin-top:8px;">📝 查看这份简历</a></p>` : ''}
       </section>`;
     return;
   }

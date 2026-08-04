@@ -662,15 +662,26 @@ function collect() {
       d[key] = el.value || '';
     }
   });
-  debounceSave();
+  markDirty();
   debouncePreview();
 }
 
 // ═══════════════════════════════════════════════════
-// SAVE
+// SAVE (with retry + dirty tracking)
 // ═══════════════════════════════════════════════════
 let _saveTimer;
+let _dirty = false;
+let _saveRetries = 0;
+const MAX_SAVE_RETRIES = 3;
+const SAVE_RETRY_BASE_MS = 2000;
+
+function markDirty() { _dirty = true; debounceSave(); }
+
 function debounceSave() { clearTimeout(_saveTimer); _saveTimer = setTimeout(saveResume, 2000); }
+
+window.addEventListener('beforeunload', (e) => {
+  if (_dirty) { e.preventDefault(); e.returnValue = ''; }
+});
 
 async function saveResume() {
   const d = _data;
@@ -719,9 +730,22 @@ async function saveResume() {
   const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(body) }).then(r => r.json());
   if (res.success) {
     if (!_resumeId) { _resumeId = res.data.id; location.hash = '#' + _resumeId; }
+    _dirty = false;
+    _saveRetries = 0;
     document.getElementById('save-status').innerHTML = '✅ 已保存';
     setTimeout(() => { const el = document.getElementById('save-status'); if (el) el.innerHTML = ''; }, 2000);
     refreshPreview();
+  } else {
+    // Auto-save retry with exponential backoff
+    if (_saveRetries < MAX_SAVE_RETRIES) {
+      _saveRetries++;
+      const delay = SAVE_RETRY_BASE_MS * Math.pow(2, _saveRetries - 1);
+      document.getElementById('save-status').innerHTML = `⚠ 保存失败，${Math.round(delay/1000)}s 后重试 (${_saveRetries}/${MAX_SAVE_RETRIES})`;
+      clearTimeout(_saveTimer);
+      _saveTimer = setTimeout(saveResume, delay);
+    } else {
+      document.getElementById('save-status').innerHTML = '❌ 保存失败，请检查网络后手动保存';
+    }
   }
 }
 
