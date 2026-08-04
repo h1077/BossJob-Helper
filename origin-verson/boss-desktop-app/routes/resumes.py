@@ -1,9 +1,12 @@
 """
 简历管理 API
 """
+import io
+import json
 import os
 import tempfile
-from flask import Blueprint, request, jsonify
+import zipfile
+from flask import Blueprint, request, jsonify, Response
 from models import db, Resume, ResumeVersion
 from utils.auth import login_required
 from utils.resume_versions import create_resume_snapshot
@@ -547,3 +550,162 @@ def parse_resume_file():
         }), 500
     except Exception as e:
         return jsonify({'success': False, 'error': f'文件解析失败: {str(e)}'}), 500
+
+
+# ── DOCX 导出 ──
+
+@resumes_bp.route('/<int:resume_id>/export-docx', methods=['GET'])
+@login_required
+def export_resume_docx_endpoint(resume_id):
+    """Export a resume as .docx (Word document)."""
+    user = request.current_user
+    resume = Resume.query.filter_by(id=resume_id, user_id=user.id).first()
+    if not resume:
+        return jsonify({'success': False, 'error': '简历不存在'}), 404
+
+    sd = resume.structured_data
+    if not isinstance(sd, dict) or not sd:
+        return jsonify({'success': False, 'error': '简历没有结构化数据'}), 400
+
+    try:
+        from utils.resume_docx import export_resume_docx
+        docx_bytes = export_resume_docx(sd, resume.title, resume.template_config)
+        filename = (resume.title or '简历').replace('/', '_').replace('\\', '_') + '.docx'
+        return Response(
+            docx_bytes,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )
+    except ImportError:
+        return jsonify({'success': False, 'error': 'python-docx 未安装。请运行: pip install python-docx'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'DOCX 导出失败: {str(e)}'}), 500
+
+
+# ── 备份包导入导出 ──
+
+@resumes_bp.route('/<int:resume_id>/backup', methods=['GET'])
+@login_required
+def export_resume_backup(resume_id):
+    """Export resume + all versions as a portable ZIP backup."""
+    user = request.current_user
+    resume = Resume.query.filter_by(id=resume_id, user_id=user.id).first()
+    if not resume:
+        return jsonify({'success': False, 'error': '简历不存在'}), 404
+
+    versions = ResumeVersion.query.filter_by(
+        resume_id=resume.id, user_id=user.id,
+    ).order_by(ResumeVersion.version_number.asc()).all()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        manifest = {
+            'title': resume.title,
+            'type': resume.type,
+            'score': resume.score,
+            'createdAt': resume.created_at.isoformat() if resume.created_at else None,
+            'updatedAt': resume.updated_at.isoformat() if resume.updated_at else None,
+            'versionCount': len(versions),
+        }
+        zf.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=2))
+        zf.writestr('content.txt', resume.content or '')
+        if isinstance(resume.structured_data, dict):
+            zf.writestr('structured_data.json', json.dumps(resume.structured_data, ensure_ascii=False, indent=2))
+        if resume.template_config:
+            zf.writestr('template_config.json', json.dumps(resume.template_config, ensure_ascii=False, indent=2))
+        for v in versions:
+            v_dir = f'versions/V{v.version_number:03d}'
+            v_manifest = {
+                'versionNumber': v.version_number,
+                'title': v.title,
+                'source': v.source,
+                'note': v.note,
+                'createdAt': v.created_at.isoformat() if v.created_at else None,
+            }
+            zf.writestr(f'{v_dir}/manifest.json', json.dumps(v_manifest, ensure_ascii=False, indent=2))
+            zf.writestr(f'{v_dir}/content.txt', v.content or '')
+            if isinstance(v.structured_data, dict):
+                zf.writestr(f'{v_dir}/structured_data.json', json.dumps(v.structured_data, ensure_ascii=False, indent=2))
+
+    buf.seek(0)
+    filename = (resume.title or '简历').replace('/', '_') + '_backup.zip'
+    return Response(
+        buf.read(),
+        mimetype='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@resumes_bp.route('/restore', methods=['POST'])
+@login_required
+def restore_resume_backup():
+    """Restore a resume from a ZIP backup file."""
+    user = request.current_user
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': '请上传备份 ZIP 文件'}), 400
+
+    file = request.files['file']
+    if not file.filename or not file.filename.lower().endswith('.zip'):
+        return jsonify({'success': False, 'error': '仅支持 .zip 备份文件'}), 400
+
+    try:
+        with zipfile.ZipFile(file) as zf:
+            names = zf.namelist()
+            if 'manifest.json' not in names:
+                return jsonify({'success': False, 'error': '无效的备份文件：缺少 manifest.json'}), 400
+
+            manifest = json.loads(zf.read('manifest.json'))
+            content = zf.read('content.txt').decode('utf-8') if 'content.txt' in names else ''
+            sd_raw = zf.read('structured_data.json').decode('utf-8') if 'structured_data.json' in names else '{}'
+            sd = json.loads(sd_raw) if sd_raw else None
+            tpl_raw = zf.read('template_config.json').decode('utf-8') if 'template_config.json' in names else '{}'
+            tpl = json.loads(tpl_raw) if tpl_raw else None
+
+            resume = Resume(
+                user_id=user.id,
+                title=manifest.get('title', '恢复的简历'),
+                content=content,
+                type=manifest.get('type', 'original'),
+                score=manifest.get('score', 0),
+                structured_data=sd,
+                template_config=tpl,
+            )
+            db.session.add(resume)
+            db.session.flush()
+
+            # Restore versions
+            restored_versions = 0
+            for name in sorted(names):
+                if name.startswith('versions/V') and name.endswith('/manifest.json'):
+                    v_manifest = json.loads(zf.read(name))
+                    v_dir = name.rsplit('/', 1)[0]
+                    v_content = zf.read(f'{v_dir}/content.txt').decode('utf-8') if f'{v_dir}/content.txt' in names else ''
+                    v_sd_raw = zf.read(f'{v_dir}/structured_data.json').decode('utf-8') if f'{v_dir}/structured_data.json' in names else '{}'
+                    v_sd = json.loads(v_sd_raw) if v_sd_raw else None
+                    version = ResumeVersion(
+                        user_id=user.id,
+                        resume_id=resume.id,
+                        version_number=v_manifest['versionNumber'],
+                        title=v_manifest.get('title', manifest.get('title', '')),
+                        content=v_content,
+                        structured_data=v_sd,
+                        source=v_manifest.get('source', 'manual'),
+                        note=v_manifest.get('note', ''),
+                    )
+                    db.session.add(version)
+                    restored_versions += 1
+
+            db.session.commit()
+            return jsonify({
+                'success': True,
+                'data': {
+                    'resumeId': resume.id,
+                    'title': resume.title,
+                    'restoredVersions': restored_versions,
+                },
+            })
+    except zipfile.BadZipFile:
+        return jsonify({'success': False, 'error': '文件不是有效的 ZIP 格式'}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'恢复失败: {str(e)}'}), 500

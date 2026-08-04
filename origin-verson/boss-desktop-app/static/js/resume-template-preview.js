@@ -125,3 +125,13 @@ async function exportPdf(type) {
   a.download = (res.data.filename || '简历') + '.pdf';
   a.click();
 }
+
+// ── DOCX export ──
+
+async function downloadDocx() {
+  if (!_resumeId) { await saveResume(); if (!_resumeId) return alert('请先保存简历'); }
+  const a = document.createElement('a');
+  a.href = `/api/resumes/${_resumeId}/export-docx`;
+  a.download = '';
+  a.click();
+}
