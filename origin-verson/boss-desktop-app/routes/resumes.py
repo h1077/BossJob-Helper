@@ -7,7 +7,8 @@ from flask import Blueprint, request, jsonify
 from models import db, Resume, ResumeVersion
 from utils.auth import login_required
 from utils.resume_versions import create_resume_snapshot
-from utils.resume_templates import normalize_template_config
+from utils.resume_templates import normalize_template_config, TEMPLATE_METADATA
+from utils.resume_renderer import render_resume_html
 
 resumes_bp = Blueprint('resumes', __name__, url_prefix='/api/resumes')
 
@@ -321,6 +322,42 @@ def restore_resume_version(resume_id, version_id):
         'data': resume.to_dict(),
         'restoredVersion': version.to_dict(include_content=False),
     })
+
+
+# ── 模板与预览 ──
+
+@resumes_bp.route('/templates', methods=['GET'])
+@login_required
+def list_templates():
+    """Return template metadata so the editor doesn't hard-code template lists."""
+    return jsonify({'success': True, 'data': list(TEMPLATE_METADATA)})
+
+
+@resumes_bp.route('/render-preview', methods=['POST'])
+@login_required
+def render_preview():
+    """Return rendered HTML for in-editor preview.  Read-only, no DB access."""
+    data = request.get_json(silent=True) or {}
+    sd = data.get('structuredData') or data.get('structured_data')
+    if not isinstance(sd, dict):
+        return jsonify({'success': False, 'error': 'structuredData 必须是 JSON 对象'}), 400
+
+    title = str(data.get('title') or sd.get('name') or '简历预览')
+    template_config = data.get('templateConfig') or data.get('template_config')
+    hidden_modules = data.get('hiddenModules') or data.get('_hiddenModules') or []
+
+    import time
+    t0 = time.perf_counter()
+    try:
+        html = render_resume_html(sd, title, template_config, hidden_modules)
+        elapsed_ms = round((time.perf_counter() - t0) * 1000)
+        used_config = normalize_template_config(template_config)
+        return jsonify({
+            'success': True,
+            'data': {'html': html, 'templateConfig': used_config, 'renderMs': elapsed_ms},
+        })
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
 
 
 # ── 批量定制简历 ──

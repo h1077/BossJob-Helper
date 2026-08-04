@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>{{ title }}</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: {{ cfg.bodyFontSize }}px;
+    color: #374151;
+    line-height: {{ cfg.lineHeight }};
+    background: #fff;
+  }
+  .page { width: 210mm; min-height: 297mm; padding: {{ cfg.pageMargin }}mm; }
+  .header { padding-bottom: 12px; margin-bottom: 6mm; border-bottom: 2px solid {{ cfg.accentColor }}; break-inside: avoid; }
+  .header-name { font-size: {{ cfg.bodyFontSize * 2 }}px; font-weight: 700; color: #111827; margin-bottom: 6px; }
+  .header-info { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: #6b7280; }
+  .section { margin-bottom: 5mm; }
+  .section-title {
+    font-size: {{ (cfg.bodyFontSize * 1.15) | round }}px;
+    font-weight: 700; color: #111827;
+    padding-bottom: 4px; margin-bottom: 5px;
+    border-bottom: 1px solid #e5e7eb; break-after: avoid;
+  }
+  .card { background: #f9fafb; border-radius: 4px; padding: 3mm 3.5mm; margin-bottom: 2mm; break-inside: avoid; }
+  .card-row { display: flex; align-items: baseline; gap: 2mm; }
+  .card-left { font-weight: 600; color: #111827; flex-shrink: 0; }
+  .card-center { flex: 1; font-size: 12px; color: #374151; }
+  .card-right { font-size: 12px; color: #6b7280; white-space: nowrap; }
+  .card-sub { font-size: 11.5px; color: #6b7280; margin-top: 1.5mm; line-height: 1.6; white-space: pre-wrap; }
+  .card-tags { font-size: 11px; color: {{ cfg.accentColor }}; margin-top: 1.5mm; }
+  .award-list { display: flex; flex-wrap: wrap; gap: 2mm 5mm; }
+  .award-item { font-size: 12px; color: #374151; }
+  .award-cat { font-weight: 600; color: #111827; }
+  .skill-group { margin-bottom: 6px; }
+  .skill-label { font-weight: 600; font-size: 12px; color: #111827; margin-bottom: 3px; }
+  .skill-tag { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; background: {{ cfg.accentColor }}; color: #fff; margin: 2px 3px 2px 0; }
+  .skill-desc { font-size: 11px; color: #6b7280; margin-top: 3px; }
+  .text-block { font-size: 12px; white-space: pre-wrap; background: #f9fafb; border-radius: 4px; padding: 3mm 3.5mm; }
+</style>
+</head>
+<body>
+<div class="page">
+  {% for section in sections %}
+    {% if section.kind == 'header' %}
+    <div class="header">
+      <div class="header-name">{{ section.title }}</div>
+      <div class="header-info">
+        {% for item in section.entries %}
+        <span>{{ item.label }}: {{ item.value }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% elif section.kind == 'card_list' %}
+    <div class="section">
+      <div class="section-title">{{ section.title }}</div>
+      {% for item in section.entries %}
+      <div class="card">
+        <div class="card-row">
+          <span class="card-left">{{ item.left }}</span>
+          <span class="card-center">{{ item.center }}</span>
+          <span class="card-right">{{ item.right }}</span>
+        </div>
+        {% if item.sub %}<div class="card-sub">{{ item.sub }}</div>{% endif %}
+        {% if item.tags %}<div class="card-tags">{{ item.tags }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% elif section.kind == 'skill_list' %}
+    <div class="section">
+      <div class="section-title">{{ section.title }}</div>
+      <div class="card">
+        {% for group in section.entries %}
+        <div class="skill-group">
+          <div class="skill-label">{{ group.label }}</div>
+          {% for tag in group.tags %}<span class="skill-tag">{{ tag }}</span>{% endfor %}
+          {% if group.desc %}<div class="skill-desc">{{ group.desc }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% elif section.kind == 'award_list' %}
+    <div class="section">
+      <div class="section-title">{{ section.title }}</div>
+      <div class="card">
+        <div class="award-list">
+          {% for item in section.entries %}
+          <span class="award-item">{% if item.label %}<span class="award-cat">{{ item.label }}</span> {% endif %}{{ item.value }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% elif section.kind == 'text_block' %}
+    <div class="section">
+      <div class="section-title">{{ section.title }}</div>
+      <div class="text-block">{{ section.entries[0].value if section.entries else '' }}</div>
+    </div>
+    {% endif %}
+  {% endfor %}
+</div>
+</body>
+</html>
