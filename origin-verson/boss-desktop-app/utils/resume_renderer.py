@@ -6,6 +6,7 @@ PDF export, and future DOCX render-plan pipeline.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -71,3 +72,41 @@ def render_resume_html(
         sections=ordered,
         cfg=cfg,
     )
+
+
+def build_docx_render_plan(
+    structured_data: dict[str, Any],
+    title: str = "",
+    template_config: dict[str, Any] | None = None,
+    hidden_modules: list[str] | None = None,
+) -> dict[str, Any]:
+    """Return a DOCX render plan — consumed by P1-2 python-docx exporter.
+
+    Uses the same document model and section ordering as the HTML renderer.
+    The plan describes semantic blocks, paragraph hierarchy, emphasis rules,
+    and ordering — P1-2 converts it to .docx binary.
+    """
+    cfg = normalize_template_config(template_config)
+    template_id = cfg.get("templateId", "classic")
+    doc = build_resume_document(structured_data, title, hidden_modules)
+
+    order = TEMPLATE_SECTION_ORDER.get(template_id, TEMPLATE_SECTION_ORDER["classic"])
+    plan_sections: list[dict[str, Any]] = []
+    for section in doc["sections"]:
+        entry = {
+            "id": section.get("id", ""),
+            "kind": section.get("kind", ""),
+            "title": section.get("title", ""),
+            "entries": deepcopy(section.get("entries", [])),
+        }
+        if section.get("kind") == "header":
+            plan_sections.insert(0, entry)
+        else:
+            plan_sections.append(entry)
+
+    return {
+        "title": doc["title"] or title,
+        "templateId": template_id,
+        "config": cfg,
+        "sections": plan_sections,
+    }

@@ -1257,12 +1257,15 @@ def export_resume_pdf():
     if not isinstance(sd, dict) or not sd:
         return jsonify({'success': False, 'error': '简历没有结构化数据，请先在结构化编辑器中填写'}), 400
 
-    # 使用现有的 HTML 构建逻辑，然后 WeasyPrint 转换
-    template_config = data.get('template_config') or {}
+    # 使用统一模板渲染器，然后 WeasyPrint 转换
+    from utils.resume_templates import normalize_template_config
+    from utils.resume_renderer import render_resume_html
+    template_config = data.get('template_config') or resume.template_config
+    config = normalize_template_config(template_config)
 
     try:
         from weasyprint import HTML
-        html_content = _build_resume_html_for_pdf(sd, resume.title, template_config)
+        html_content = render_resume_html(sd, resume.title, config)
         pdf_bytes = HTML(string=html_content).write_pdf()
 
         import base64
@@ -1285,201 +1288,11 @@ def export_resume_pdf():
 
 
 def _build_resume_html_for_pdf(sd, title, template_config):
-    """将结构化简历数据渲染为 HTML 字符串，用于 WeasyPrint PDF 导出。
-    复用前端 buildResumeHTML 的 CSS 方案，在服务端完成渲染。"""
-    from jinja2 import Template
-
-    tpl_cfg = {
-        'themeColor': template_config.get('themeColor', '#2563eb'),
-        'bodyFontSize': template_config.get('bodyFontSize', 13),
-        'pageMargin': template_config.get('pageMargin', 16),
-        'lineHeight': template_config.get('lineHeight', 1.7),
-    }
-
-    TEMPLATE_HTML = r"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<title>{{ title }} — 简历</title>
-<style>
-  @page { size: A4; margin: 0; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
-    font-size: {{ cfg.bodyFontSize }}px;
-    color: #374151;
-    line-height: {{ cfg.lineHeight }};
-    background: #fff;
-  }
-  .page {
-    width: 210mm; min-height: 297mm;
-    padding: {{ cfg.pageMargin }}mm;
-  }
-  .header {
-    display: flex; justify-content: space-between;
-    padding-bottom: 12px; margin-bottom: 6mm;
-    border-bottom: 2px solid {{ cfg.themeColor }};
-    break-inside: avoid;
-  }
-  .header-name {
-    font-size: {{ cfg.bodyFontSize * 2 }}px;
-    font-weight: 700; color: #111827;
-    letter-spacing: 1px; margin-bottom: 6px;
-  }
-  .header-info { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: #6b7280; }
-  .section { margin-bottom: 5mm; }
-  .section-title {
-    font-size: {{ (cfg.bodyFontSize * 1.15)|round }}px;
-    font-weight: 700; color: #111827;
-    padding-bottom: 4px; margin-bottom: 5px;
-    border-bottom: 1px solid #e5e7eb;
-    break-after: avoid;
-  }
-  .card {
-    background: #f9fafb; border-radius: 4px;
-    padding: 3mm 3.5mm; margin-bottom: 2mm;
-    break-inside: avoid;
-  }
-  .card-row { display: flex; align-items: baseline; gap: 2mm; }
-  .card-left { font-weight: 600; color: #111827; flex-shrink: 0; }
-  .card-center { flex: 1; font-size: 12px; color: #374151; }
-  .card-right { font-size: 12px; color: #6b7280; white-space: nowrap; }
-  .card-sub { font-size: 11.5px; color: #6b7280; margin-top: 1.5mm; line-height: 1.6; }
-  .bullets { list-style: none; padding: 0; margin-top: 2mm; }
-  .bullets li {
-    position: relative; padding-left: 3.5mm; margin-bottom: 1.2mm;
-    font-size: 12px; color: #374151; line-height: 1.6;
-    break-inside: avoid;
-  }
-  .bullets li::before {
-    content: '•'; position: absolute; left: 0;
-    color: {{ cfg.themeColor }}; font-weight: 700;
-  }
-  .skill-table { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5mm 4mm; }
-  .skill-row { display: flex; gap: 2mm; font-size: 12px; }
-  .skill-label { font-weight: 600; color: #111827; white-space: nowrap; }
-  .skill-value { color: #374151; }
-  .award-list { display: flex; flex-wrap: wrap; gap: 2mm 5mm; }
-  .award-item { font-size: 12px; color: #374151; }
-  .award-cat { font-weight: 600; color: #111827; }
-</style>
-</head>
-<body>
-<div class="page">
-  <div class="header">
-    <div class="header-left">
-      <div class="header-name">{{ name or title }}</div>
-      <div class="header-info">
-        {%- if phone %}<span>📞 {{ phone }}</span>{% endif -%}
-        {%- if email %}<span>✉️ {{ email }}</span>{% endif -%}
-        {%- if political_status %}<span>🏛️ {{ political_status }}</span>{% endif -%}
-        {%- if homepage %}<span>🌐 {{ homepage }}</span>{% endif -%}
-        {%- if address %}<span>📮 {{ address }}</span>{% endif -%}
-        {%- if portfolio %}<span>🔗 {{ portfolio }}</span>{% endif -%}
-      </div>
-    </div>
-  </div>
-
-  {%- if education %}
-  <div class="section"><div class="section-title">🎓 教育背景</div>
-  {%- for e in education %}
-  <div class="card"><div class="card-row">
-    <span class="card-left">{{ e.school or '' }}</span>
-    <span class="card-center">{{ e.major or '' }}{% if e.degree %} · {{ e.degree }}{% endif %}</span>
-    <span class="card-right">{{ e.period or '' }}</span>
-  </div>
-  {%- if e.gpa %}<div class="card-sub">GPA: {{ e.gpa }}</div>{% endif -%}
-  {%- if e.highlights %}<div class="card-sub">{{ e.highlights }}</div>{% endif %}
-  </div>{% endfor -%}
-  </div>{% endif -%}
-
-  {%- if internships %}
-  <div class="section"><div class="section-title">💼 实习经历</div>
-  {%- for inv in internships %}
-  <div class="card"><div class="card-row">
-    <span class="card-left">{{ inv.company or '' }}</span>
-    <span class="card-center">{{ inv.role or '' }}</span>
-    <span class="card-right">{{ inv.period or '' }}</span>
-  </div>
-  {%- if inv.summary %}<div class="card-sub">{{ inv.summary }}</div>{% endif -%}
-  {%- if inv.star_points %}
-  <ul class="bullets">{%- for sp in inv.star_points %}
-    <li>{% if sp is mapping %}{{ sp.action or '' }}{% if sp.result %}。{{ sp.result }}{% endif %}{% else %}{{ sp }}{% endif %}</li>{% endfor -%}
-  </ul>{% endif -%}
-  </div>{% endfor -%}
-  </div>{% endif -%}
-
-  {%- if projects %}
-  <div class="section"><div class="section-title">🚀 项目经历</div>
-  {%- for proj in projects %}
-  <div class="card"><div class="card-row">
-    <span class="card-left">{{ proj.name or '' }}</span>
-    <span class="card-center">{{ proj.role or '' }}</span>
-    <span class="card-right">{{ proj.period or '' }}</span>
-  </div>
-  {%- if proj.summary %}<div class="card-sub">{{ proj.summary }}</div>{% endif -%}
-  {%- if proj.tags %}<div class="card-sub" style="color:#1E3A8A;">🏷 {{ proj.tags | join(' · ') }}</div>{% endif -%}
-  {%- if proj.star_points %}
-  <ul class="bullets">{%- for sp in proj.star_points %}
-    <li>{% if sp is mapping %}{{ sp.action or '' }}{% if sp.result %}。{{ sp.result }}{% endif %}{% else %}{{ sp }}{% endif %}</li>{% endfor -%}
-  </ul>{% endif -%}
-  </div>{% endfor -%}
-  </div>{% endif -%}
-
-  {%- if awards %}
-  <div class="section"><div class="section-title">🏆 获奖情况</div>
-  <div class="card"><div class="award-list">
-  {%- for a in awards %}
-    <span class="award-item">{% if a.category %}<span class="award-cat">{{ a.category }}</span> {% endif %}{{ a.name or '' }}</span>{% endfor -%}
-  </div></div>
-  </div>{% endif -%}
-
-  {%- if student_work %}
-  <div class="section"><div class="section-title">📋 学生工作</div>
-  {%- for sw in student_work %}
-  <div class="card"><div class="card-row">
-    <span class="card-left">{{ sw.org or '' }}</span>
-    <span class="card-center">{{ sw.role or '' }}</span>
-    <span class="card-right">{{ sw.period or '' }}</span>
-  </div>
-  {%- if sw.desc %}<div class="card-sub">{{ sw.desc }}</div>{% endif %}
-  </div>{% endfor -%}
-  </div>{% endif -%}
-
-  {%- if skills is mapping %}
-  {%- set active = [] -%}
-  {%- for k, v in skills.items() -%}{%- if v %}{%- set _ = active.append((k, v)) -%}{%- endif -%}{%- endfor -%}
-  {%- if active %}
-  {%- set labels = {'english': '英语', 'programming': '编程', 'ai': 'AI与数据分析', 'tools': '工具', 'hardware': '硬件', 'other': '其他'} %}
-  <div class="section"><div class="section-title">🛠 专业技能</div>
-  <div class="card"><div class="skill-table">
-  {%- for k, v in active %}
-    <div class="skill-row"><span class="skill-label">{{ labels.get(k, k) }}</span><span class="skill-value">{{ v }}</span></div>{% endfor -%}
-  </div></div>
-  </div>{% endif -%}
-  {% endif -%}
-</div>
-</body>
-</html>"""
-
-    tpl = Template(TEMPLATE_HTML)
-    return tpl.render(
-        name=sd.get('name', ''),
-        title=title or '未命名简历',
-        phone=sd.get('phone', ''),
-        email=sd.get('email', ''),
-        political_status=sd.get('political_status', ''),
-        homepage=sd.get('homepage', ''),
-        address=sd.get('address', ''),
-        portfolio=sd.get('portfolio', ''),
-        education=sd.get('education', []),
-        internships=sd.get('internships', []),
-        projects=sd.get('projects', []),
-        skills=sd.get('skills', {}),
-        awards=sd.get('awards', []),
-        student_work=sd.get('student_work', []),
-        cfg=tpl_cfg,
-    )
+    """Deprecated: use utils.resume_renderer.render_resume_html() instead.
+    Kept as a thin compatibility wrapper for any existing callers."""
+    from utils.resume_renderer import render_resume_html
+    from utils.resume_templates import normalize_template_config
+    return render_resume_html(sd, title, normalize_template_config(template_config))
 
 
 # ═══════════════════════════════════════════════════════════════
