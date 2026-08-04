@@ -135,7 +135,9 @@ async function getCfg() {
     'aiApiKey', 'aiApiUrl', 'aiModel', 'aiRole',
     'enableCompanyCheck', 'enableCompanyResearch',
     'hrInactiveDays', 'useDesktopBridge', 'conversationStrategy',
-    'blacklist', 'salaryRange', 'smartSchedule', 'smartGreetingPrompt'
+    'blacklist', 'salaryRange', 'smartSchedule', 'smartGreetingPrompt',
+    'greetingSelfReview', 'dealBreakers',
+    'browseBeforeGreet', 'browseDurationMin', 'browseDurationMax'
   ]);
 }
 function defaultCfg(cfg) {
@@ -228,9 +230,43 @@ async function setCachedGreeting(key, text) {
   await chrome.storage.local.set({ [key]: { text, time: Date.now() } });
 }
 
+// ── 招呼语自评（BossHunter 借鉴：AI 生成后自评质量，低于阈值自动优化）──
+const REVIEW_PROMPT = `请评估以下BOSS直聘招呼语的质量。
+
+## 岗位
+{title} @ {company}
+
+## 招呼语
+{greeting}
+
+## 评估维度（每项1-10分）
+1. 自然度：是否像真人发的IM消息，而非模板
+2. 相关性：是否针对该岗位突出匹配点
+3. 差异化：是否能从众多招呼中脱颖而出
+
+请严格按JSON格式输出，不要输出其他内容：
+{"naturalness":8,"relevance":7,"differentiation":6,"avg":7.0,"critique":"改进建议（20字内）"}`;
+
+async function _reviewGreeting(greeting, job, cfg) {
+  try {
+    const reviewPrompt = REVIEW_PROMPT
+      .replace('{title}', job.name || '未知岗位')
+      .replace('{company}', job.company || '未知公司')
+      .replace('{greeting}', greeting);
+    const raw = await callAISmart(cfg, [
+      { role: 'user', content: reviewPrompt }
+    ], 100, 0.3);
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}') + 1;
+    if (start >= 0 && end > start) return JSON.parse(raw.slice(start, end));
+  } catch (e) { /* review failed, accept greeting as-is */ }
+  return null;
+}
+
 // ── 招呼语生成（带缓存 + 重试 + 降级兜底）──
 const GREETING_MIN_LENGTH = 30;   // 招呼语最少30字
 const GREETING_MAX_RETRIES = 2;   // 最多重试2次（共3次尝试）
+const SELF_REVIEW_THRESHOLD = 6.5; // 自评平均分阈值
 
 async function generateGreeting(cfg, job, jd) {
   const cacheKey = greetingCacheKey(job);
@@ -314,13 +350,17 @@ async function generateGreeting(cfg, job, jd) {
       '看到' + companyStr + '的' + (job.name || '招聘信息') + '与我的经历比较匹配，希望能有机会进一步沟通。';
   }
 
-  // ── 重试循环 ──
+  // ── 重试循环（含自评优化）──
   let lastGreeting = '';
+  let lastCritique = '';
   for (let attempt = 0; attempt <= GREETING_MAX_RETRIES; attempt++) {
     try {
-      const sys = buildSystemPrompt(attempt);
-      const user = buildUserMessage();
-      const temperature = 0.5 + attempt * 0.2;  // 每次重试提高 temperature 增加多样性
+      // 如果有上次的批评，注入到 prompt 中
+      const effectiveRetryLevel = lastCritique ? GREETING_MAX_RETRIES : attempt;
+      const sys = buildSystemPrompt(effectiveRetryLevel);
+      const user = buildUserMessage()
+        + (lastCritique ? '\n\n【上次生成的问题，请避免】' + lastCritique : '');
+      const temperature = 0.5 + attempt * 0.2;
       let greeting = await callAISmart(cfg, [
         { role: 'system', content: sys },
         { role: 'user', content: user }
@@ -330,20 +370,41 @@ async function generateGreeting(cfg, job, jd) {
       // 清理常见的前缀/后缀噪音
       greeting = greeting.replace(/^["'「『"""]+|["'」』"""]+$/g, '');
       greeting = greeting.replace(/^(招呼语|打招呼|消息)[：:]\s*/i, '');
-      greeting = greeting.replace(/^\([^)]*\)\s*/, '');  // 去掉开头的括号注释
+      greeting = greeting.replace(/^\([^)]*\)\s*/, '');
 
-      if (greeting.length >= GREETING_MIN_LENGTH) {
-        // 合格！缓存并返回
-        await setCachedGreeting(cacheKey, greeting);
-        return greeting;
+      if (greeting.length < GREETING_MIN_LENGTH) {
+        lastGreeting = greeting;
+        lastCritique = '';
+        if (attempt < GREETING_MAX_RETRIES) {
+          log('  招呼语过短(' + greeting.length + '字)，重试第' + (attempt + 1) + '次...', 'warn');
+        }
+        continue;
       }
 
-      // 太短，记录并准备重试
-      lastGreeting = greeting;
-      if (attempt < GREETING_MAX_RETRIES) {
-        log('  招呼语过短(' + greeting.length + '字)，重试第' + (attempt + 1) + '次...', 'warn');
+      // 长度合格 → 如果开启了自评，进行质量审查
+      if (cfg.greetingSelfReview) {
+        const review = await _reviewGreeting(greeting, job, cfg);
+        if (review && typeof review.avg === 'number') {
+          log('  招呼语自评: ' + review.avg.toFixed(1) + '分 (自然度' + (review.naturalness||'?') + '/相关性' + (review.relevance||'?') + '/差异化' + (review.differentiation||'?') + ')', 'info');
+          if (review.avg >= SELF_REVIEW_THRESHOLD) {
+            await setCachedGreeting(cacheKey, greeting);
+            return greeting;
+          }
+          // 质量不达标，用 critique 重试
+          lastGreeting = greeting;
+          lastCritique = review.critique || '';
+          if (attempt < GREETING_MAX_RETRIES) {
+            log('  招呼语质量不足(' + review.avg.toFixed(1) + '<' + SELF_REVIEW_THRESHOLD + ')，根据建议重试第' + (attempt + 1) + '次...', 'warn');
+          }
+          continue;
+        }
       }
+
+      // 未开启自评 或 自评解析失败 → 直接通过
+      await setCachedGreeting(cacheKey, greeting);
+      return greeting;
     } catch (e) {
+      lastCritique = '';
       if (attempt < GREETING_MAX_RETRIES) {
         log('  招呼语生成失败(' + e.message + ')，重试第' + (attempt + 1) + '次...', 'warn');
       }
@@ -817,6 +878,18 @@ async function runCollect() {
       }
     }
 
+    // 一票否决词（岗位名称/公司名中包含即跳过，借鉴 BossHunter）
+    const dealBreakers = (cfg.dealBreakers || '').split('\n').map(s => s.trim()).filter(Boolean);
+    if (dealBreakers.length > 0) {
+      const titleAndCompany = ((job.name || '') + ' ' + (job.company || '')).toLowerCase();
+      const hit = dealBreakers.find(kw => titleAndCompany.includes(kw.toLowerCase()));
+      if (hit) {
+        filterStats.dealBreaker = (filterStats.dealBreaker || 0) + 1;
+        if (sampleRejects.length < 5) sampleRejects.push({ name: job.name, reason: '一票否决词', detail: '命中: "' + hit + '"' });
+        continue;
+      }
+    }
+
     // 公司黑名单
     const blacklist = (cfg.blacklist || '').split('\n').map(s => s.trim()).filter(Boolean);
     if (blacklist.length > 0) {
@@ -856,7 +929,7 @@ async function runCollect() {
 
   // ── 调试日志：筛选统计 ──
   log('─── 📊 筛选统计 ───', 'info');
-  log('总收集: ' + state.jobs.length + ' | ✅通过: ' + filterStats.passed + ' | ❌福利: ' + filterStats.welfare + ' | ❌薪资: ' + filterStats.salary + ' | ❌猎头: ' + filterStats.headhunter + ' | ❌不活跃: ' + filterStats.inactive + ' | ❌黑名单: ' + filterStats.blacklist + ' | ❌去重: ' + filterStats.duplicate + ' | ❌低匹配分: ' + filterStats.lowMatch + ' | ℹ️无简历关键词: ' + filterStats.noResume, 'info');
+  log('总收集: ' + state.jobs.length + ' | ✅通过: ' + filterStats.passed + ' | ❌福利: ' + filterStats.welfare + ' | ❌薪资: ' + filterStats.salary + ' | ❌猎头: ' + filterStats.headhunter + ' | ❌不活跃: ' + filterStats.inactive + ' | ❌否决词: ' + (filterStats.dealBreaker || 0) + ' | ❌黑名单: ' + filterStats.blacklist + ' | ❌去重: ' + filterStats.duplicate + ' | ❌低匹配分: ' + filterStats.lowMatch + ' | ℹ️无简历关键词: ' + filterStats.noResume, 'info');
   if (sampleRejects.length > 0) {
     log('─── 📋 被拒样本（前' + sampleRejects.length + '个）───', 'warn');
     sampleRejects.forEach(s => log('  ✗ ' + s.name + ' → ' + s.reason + ' | ' + (s.detail || ''), 'warn'));
@@ -924,6 +997,12 @@ async function runDeliver() {
   let skippedCount = 0;
   let skippedReasons = {};
   state.phase = 'delivering'; pushPhase();
+
+  // 检查跟进消息
+  if (cfg.followUpEnabled) {
+    const followUpCount = await checkFollowUps(cfg);
+    if (followUpCount > 0) log('  已发送 ' + followUpCount + ' 条跟进消息', 'success');
+  }
 
   // 从 storage 恢复（SW 可能被回收）
   if (!state.queue.length) {
@@ -1002,6 +1081,15 @@ async function runDeliver() {
       log('  招呼语(' + greeting.length + '字): ' + greeting.slice(0, 60) + '...');
     }
 
+    // 2.5 浏览模拟：浏览岗位页面，模拟真人行为（借鉴 BossHunter）
+    if (cfg.browseBeforeGreet) {
+      const browseSec = (cfg.browseDurationMin || 10) + Math.random() * ((cfg.browseDurationMax || 25) - (cfg.browseDurationMin || 10));
+      log('  浏览岗位页面 ' + Math.round(browseSec) + ' 秒（模拟真人）...');
+      // 滚动页面模拟阅读
+      await sendToTab(tab.id, { type: 'SCROLL_SIMULATE', duration: Math.round(browseSec) });
+      await safeSleep(Math.round(browseSec * 1000));
+    }
+
     // 3. 点击"立即沟通" → 跳转聊天页
     log('  建立联系...');
     await sendToTab(tab.id, { type: 'GO_CHAT', job, greeting, cfg });
@@ -1032,6 +1120,14 @@ async function runDeliver() {
       await incrDailyCount(daily.key);
       await updateJobTracker('applied', true);
       if (job.matchScore >= 7) await updateJobTracker('highMatch', true);
+      // 记录发送时间戳和岗位信息（用于跟进检测）
+      const sentJobs = await chrome.storage.local.get('sentJobTimestamps');
+      const stamps = sentJobs.sentJobTimestamps || {};
+      stamps[job.id] = Date.now();
+      await chrome.storage.local.set({
+        sentJobTimestamps: stamps,
+        ['followUpJob_' + job.id]: { id: job.id, name: job.name, company: job.company }
+      });
       RiskManager.onSuccess();
       // 同步到桌面数据库
       if (cfg.useDesktopBridge) {
@@ -1090,6 +1186,82 @@ async function runDeliver() {
   chrome.runtime.sendMessage({ type: 'DONE', ok, fail, skipped: skippedCount }).catch(() => {});
 }
 
+// ── 跟进消息（借鉴 BossHunter：超时未回复岗位自动跟进）──
+async function checkFollowUps(cfg) {
+  if (!cfg.followUpEnabled) return 0;
+
+  const intervalHours = cfg.followUpIntervalHours || 48;
+  const sentJobs = await chrome.storage.local.get(['sentJobTimestamps', 'followUpSent']);
+  const stamps = sentJobs.sentJobTimestamps || {};
+  const followUpSent = sentJobs.followUpSent || {};
+  const cutoff = Date.now() - intervalHours * 3600 * 1000;
+
+  const stale = Object.entries(stamps)
+    .filter(([jobId, ts]) => ts < cutoff && !followUpSent[jobId])
+    .slice(0, 5); // 每轮最多处理 5 个
+
+  if (!stale.length) return 0;
+
+  log('📨 检测到 ' + stale.length + ' 个超过' + intervalHours + '小时无回复的岗位，尝试跟进...', 'info');
+  let count = 0;
+
+  for (const [jobId] of stale) {
+    // 从存储中恢复岗位信息
+    const jobData = await chrome.storage.local.get('followUpJob_' + jobId);
+    const job = jobData['followUpJob_' + jobId];
+    if (!job) continue;
+
+    const followUpMsg = await _generateFollowUp(job, cfg);
+    if (!followUpMsg) continue;
+
+    // 打开聊天页发送
+    const chatUrl = 'https://www.zhipin.com/web/geek/chat';
+    const tab = await ensureTab(chatUrl);
+    await ensureInjected(tab.id, 'src/content-chat.js');
+
+    try {
+      log('  跟进: ' + job.name + ' - ' + job.company, 'info');
+      // 用 SEND_ALL 但不带招呼语，只发跟进文本
+      const r = await sendToTab(tab.id, {
+        type: 'SEND_FOLLOW_UP',
+        message: followUpMsg.slice(0, 100)
+      });
+      if (r && r.success) {
+        followUpSent[jobId] = Date.now();
+        count++;
+      }
+    } catch (e) {
+      log('  跟进失败: ' + job.name + ' (' + e.message + ')', 'warn');
+    }
+    await rand(3000, 6000);
+  }
+
+  await chrome.storage.local.set({ followUpSent });
+  return count;
+}
+
+async function _generateFollowUp(job, cfg) {
+  const intervalHours = cfg.followUpIntervalHours || 48;
+  const prompt = `你是一位求职者，之前在BOSS直聘给HR发了招呼消息，约${intervalHours}小时没收到回复。请生成一条简短的跟进消息。
+
+岗位：${job.name || ''}（${job.company || ''}）
+
+要求：
+1. 字数控制在20-40字
+2. 语气自然，不卑不亢，像真人发的
+3. 表达还在关注这个岗位，期待有机会沟通
+4. 不要直接提"${intervalHours}小时没回复"`;
+
+  try {
+    const reply = await callAISmart(cfg, [
+      { role: 'user', content: prompt }
+    ], 100, 0.7);
+    return (reply || '').trim();
+  } catch (e) {
+    return null;
+  }
+}
+
 // ── 消息入口 ──
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'AI_REPLY') {
@@ -1134,6 +1306,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'START_COLLECT') { runCollect(); sendResponse({ ok: true }); return; }
+  if (msg.type === 'FOLLOW_UP_NOW') {
+    (async () => {
+      const cfg = defaultCfg(await getCfg());
+      const count = await checkFollowUps(cfg);
+      sendResponse({ ok: true, count });
+      if (count > 0) log('  已发送 ' + count + ' 条跟进消息', 'success');
+      else log('  暂无可跟进的岗位', 'info');
+    })().catch(e => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
   if (msg.type === 'START_DELIVER') {
     chrome.storage.local.get(['sw_queue', 'sw_queue_index'], (d) => {
       if (d.sw_queue && d.sw_queue.length) { state.queue = d.sw_queue; state.queueIndex = 0; }

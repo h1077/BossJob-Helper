@@ -10,7 +10,9 @@ const CFG_KEYS = [
   'enableCompanyCheck', 'autoReply', 'aiRole', 'conversationStrategy',
   'hrInactiveDays', 'useDesktopBridge', 'jobTracker', 'dailyStats',
   'blacklist', 'salaryRange', 'resumes', 'interviews',
-  'smartSchedule', 'smartGreetingPrompt'
+  'smartSchedule', 'smartGreetingPrompt', 'dealBreakers',
+  'greetingSelfReview', 'browseBeforeGreet', 'browseDurationMin', 'browseDurationMax',
+  'followUpEnabled', 'followUpIntervalHours'
 ];
 
 // 折叠面板
@@ -599,6 +601,13 @@ function loadCfg() {
     $('smartSchedule').checked = d.smartSchedule !== false;
     if (d.smartGreetingPrompt) $('smartGreetingPrompt').value = d.smartGreetingPrompt;
     if (d.blacklist) $('blacklist').value = d.blacklist;
+    if (d.dealBreakers) $('dealBreakers').value = d.dealBreakers;
+    $('greetingSelfReview').checked = d.greetingSelfReview === true;
+    $('browseBeforeGreet').checked = d.browseBeforeGreet === true;
+    if (d.browseDurationMin) $('browseDurationMin').value = d.browseDurationMin;
+    if (d.browseDurationMax) $('browseDurationMax').value = d.browseDurationMax;
+    $('followUpEnabled').checked = d.followUpEnabled === true;
+    if (d.followUpIntervalHours) $('followUpIntervalHours').value = d.followUpIntervalHours;
     if (d.salaryRange) {
       salaryRange = d.salaryRange;
       document.querySelectorAll('.chip-salary').forEach(c => {
@@ -643,6 +652,13 @@ async function saveCfg() {
     smartSchedule: $('smartSchedule').checked,
     smartGreetingPrompt: $('smartGreetingPrompt').value.trim(),
     blacklist: $('blacklist').value.trim(),
+    dealBreakers: $('dealBreakers').value.trim(),
+    greetingSelfReview: $('greetingSelfReview').checked,
+    browseBeforeGreet: $('browseBeforeGreet').checked,
+    browseDurationMin: parseInt($('browseDurationMin').value) || 10,
+    browseDurationMax: parseInt($('browseDurationMax').value) || 25,
+    followUpEnabled: $('followUpEnabled').checked,
+    followUpIntervalHours: parseInt($('followUpIntervalHours').value) || 48,
     salaryRange,
     resumes,
     interviews

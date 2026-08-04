@@ -225,6 +225,19 @@
       openJD(msg.job).then(r => sendResponse(r)).catch(e => sendResponse({ success: false, error: e.message }));
       return true;
     }
+    if (msg.type === 'SCROLL_SIMULATE') {
+      // 模拟真人浏览：慢速滚动页面
+      const duration = msg.duration || 15;
+      const steps = Math.max(1, Math.floor(duration / 3));
+      const scrollStep = document.body.scrollHeight / steps;
+      let step = 0;
+      const iv = setInterval(() => {
+        step++;
+        window.scrollTo(0, Math.min(scrollStep * step, document.body.scrollHeight));
+        if (step >= steps) { clearInterval(iv); sendResponse({ success: true }); }
+      }, 3000);
+      return true;
+    }
     if (msg.type === 'GO_CHAT') {
       goChat(msg.job, msg.greeting, msg.cfg).then(r => sendResponse(r)).catch(e => sendResponse({ success: false, error: e.message }));
       return true;

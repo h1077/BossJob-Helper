@@ -259,6 +259,10 @@
       sendAll(msg).then(r => sendResponse(r)).catch(e => sendResponse({ success: false, error: e.message }));
       return true;
     }
+    if (msg.type === 'SEND_FOLLOW_UP') {
+      sendText(msg.message).then(r => sendResponse(r)).catch(e => sendResponse({ success: false, error: e.message }));
+      return true;
+    }
     if (msg.type === 'SCAN_VISIBLE_FEEDBACK') {
       const messages = [...document.querySelectorAll('.item-friend')].map(node => ({ text: node.textContent || '' }));
       const events = FeedbackEvents.buildVisibleFeedbackEvents(messages, location.pathname + location.search, feedbackContext());

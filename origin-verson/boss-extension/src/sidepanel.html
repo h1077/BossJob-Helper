@@ -32,6 +32,9 @@
       <label>公司黑名单（一行一个公司名，模糊匹配）</label>
       <textarea id="blacklist" rows="3" placeholder="XX科技&#10;YY集团"></textarea>
 
+      <label>🚫 一票否决词（岗位/公司名命中即跳过，一行一个）</label>
+      <textarea id="dealBreakers" rows="2" placeholder="外包&#10;996"></textarea>
+
       <label>收集数量（每个城市）</label>
       <input type="number" id="count" value="60" min="1" max="200" step="10">
       <label>每日投递上限</label>
@@ -100,6 +103,10 @@
       <div class="toggle-row">
         <span>AI 自动回复（聊天页监听新消息）</span>
         <label class="switch"><input type="checkbox" id="autoReply"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span>招呼语自评优化（生成后AI自评质量，不达标自动重写）</span>
+        <label class="switch"><input type="checkbox" id="greetingSelfReview"><span class="slider"></span></label>
       </div>
 
       <label>AI 角色定位（影响回复语气和策略）</label>
@@ -194,6 +201,23 @@
 	        <button class="btn-sm" id="btnExportCsv" style="flex:1;">📥 CSV</button>
 	        <button class="btn-sm" id="btnExportXlsx" style="flex:1;">📥 Excel</button>
         <label class="switch"><input type="checkbox" id="smartSchedule" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row" style="margin-top:4px;">
+        <span>🌐 浏览模拟（投递前浏览岗位页面，降低检测风险）</span>
+        <label class="switch"><input type="checkbox" id="browseBeforeGreet"><span class="slider"></span></label>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;"><label>最短浏览(秒)</label><input type="number" id="browseDurationMin" value="10" min="5" max="60"></div>
+        <div style="flex:1;"><label>最长浏览(秒)</label><input type="number" id="browseDurationMax" value="25" min="10" max="120"></div>
+      </div>
+      <div class="toggle-row" style="margin-top:4px;">
+        <span>📨 跟进消息（超时未回复岗位自动发送跟进）</span>
+        <label class="switch"><input type="checkbox" id="followUpEnabled"><span class="slider"></span></label>
+      </div>
+      <div>
+        <label>跟进间隔(小时)</label>
+        <input type="number" id="followUpIntervalHours" value="48" min="12" max="168" step="6">
+      </div>
       </div>
       <div class="status-row">
         <span id="phaseText">就绪</span>
