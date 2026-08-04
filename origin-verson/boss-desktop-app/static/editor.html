@@ -150,7 +150,7 @@ body { font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif; font-si
   <span class="save-status" id="save-status"></span>
   <span class="spacer"></span>
   <button class="header-btn" onclick="exportPdf('html')">📄 导出 PDF</button>
-  <button class="header-btn" onclick="exportPdf('latex')">📐 LaTeX</button>
+  <button class="header-btn" onclick="exportPdf('latex')">📐 LaTeX（传统版）</button>
 </div>
 
 <!-- ═══ BODY ═══ -->
@@ -246,6 +246,12 @@ body { font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif; font-si
 
   <!-- RIGHT (Preview) -->
   <div class="editor-right">
+    <div class="template-controls" id="template-controls" style="padding:8px 16px;background:#fff;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span style="font-size:12px;font-weight:600;color:var(--text1);">模板:</span>
+      <div id="template-options" style="display:flex;gap:4px;"></div>
+      <span style="font-size:12px;font-weight:600;color:var(--text1);margin-left:8px;">强调色:</span>
+      <input type="color" id="tpl-accent" value="#2563eb" style="width:28px;height:24px;border:1px solid var(--border);border-radius:4px;cursor:pointer;">
+    </div>
     <div class="preview-bar">
       <span id="zoom-label">简历预览 · 65%</span>
       <div style="display:flex;gap:4px;">
@@ -268,6 +274,7 @@ body { font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif; font-si
   <button class="btn-ghost" onclick="aiAction('match')">🎯 匹配</button>
 </div>
 
+<script src="/js/resume-template-preview.js"></script>
 <script>
 // ═══════════════════════════════════════════════════
 // STATE
@@ -312,6 +319,7 @@ async function init() {
   setupResizer();
   setupTabs();
   setupAi();
+  initTemplateControls();
   refreshPreview();
 }
 init();
@@ -346,6 +354,7 @@ async function loadResume() {
   document.getElementById('ed-title').value = r.title || '';
   document.getElementById('ed-title2').value = r.title || '';
   _hiddenModules = _data._hiddenModules || [];
+  if (r.templateConfig) loadTemplateConfig(r.templateConfig);
   renderForm();
   renderModuleBar();
   refreshPreview();
@@ -702,7 +711,7 @@ async function saveResume() {
   }
 
   // 结构化模式：保存结构化数据
-  const body = { title, structuredData: d };
+  const body = { title, structuredData: d, templateConfig: getTemplateConfig() };
   const method = _resumeId ? 'PUT' : 'POST';
   const url = _resumeId ? `/api/resumes/${_resumeId}` : '/api/resumes';
 
@@ -720,120 +729,13 @@ function saveTitle() {
   saveResume();
 }
 
-// ═══════════════════════════════════════════════════
-// PREVIEW
-// ═══════════════════════════════════════════════════
-let _previewTimer;
-function debouncePreview() { clearTimeout(_previewTimer); _previewTimer = setTimeout(refreshPreview, 500); }
-
-function refreshPreview() {
-  const d = _data;
-  if (!d) return;
-  const html = buildHTML(d);
-  const frame = document.getElementById('preview-frame');
-  if (frame) {
-    frame.style.transform = `scale(${_zoom})`;
-    frame.style.transformOrigin = 'top center';
-    frame.srcdoc = html;
-  }
-}
-
+// Preview now handled by /js/resume-template-preview.js (server-side unified renderer)
 function zoomIn() { _zoom = Math.max(0.3, _zoom - 0.1); applyZoom(); }
 function zoomOut() { _zoom = Math.min(1.5, _zoom + 0.1); applyZoom(); }
 function applyZoom() {
   const frame = document.getElementById('preview-frame');
   if (frame) { frame.style.transform = `scale(${_zoom})`; frame.style.transformOrigin = 'top center'; }
   document.getElementById('zoom-label').textContent = `简历预览 · ${Math.round(_zoom*100)}%`;
-}
-
-function buildHTML(d) {
-  const name = d.name || '';
-  const title = document.getElementById('ed-title').value || '简历预览';
-  const tpl = { themeColor: '#2563eb', bodyFontSize: 13, pageMargin: 16, lineHeight: 1.7 };
-
-  // Education
-  let eduHTML = '';
-  (d.education||[]).forEach(e => {
-    if (!e.school) return;
-    eduHTML += `<div class="card"><div class="card-row"><span class="card-left">${esc(e.school)}</span><span class="card-center">${esc(e.major||'')} · ${esc(e.degree||'')}</span><span class="card-right">${esc(e.period||'')}</span></div>${e.gpa?`<div class="card-sub">GPA: ${esc(e.gpa)}</div>`:''}${e.highlights?`<div class="card-sub">${esc(e.highlights)}</div>`:''}</div>`;
-  });
-
-  // Internships
-  let internHTML = '';
-  (d.internships||[]).forEach(e => {
-    if (!e.company) return;
-    internHTML += `<div class="card"><div class="card-row"><span class="card-left">${esc(e.company)}</span><span class="card-center">${esc(e.role||'')}</span><span class="card-right">${esc(e.period||'')}</span></div>${e.summary?`<div class="card-sub">${esc(e.summary)}</div>`:''}</div>`;
-  });
-
-  // Projects
-  let projHTML = '';
-  (d.projects||[]).forEach(e => {
-    if (!e.name) return;
-    projHTML += `<div class="card"><div class="card-row"><span class="card-left">${esc(e.name)}</span><span class="card-center">${esc(e.role||'')}</span><span class="card-right">${esc(e.period||'')}</span></div>${e.summary?`<div class="card-sub">${esc(e.summary)}</div>`:''}${e.tags?`<div class="card-sub" style="color:#1E3A8A;">🏷 ${esc(e.tags)}</div>`:''}</div>`;
-  });
-
-  // Awards
-  let awardHTML = '';
-  (d.awards||[]).forEach(e => {
-    if (!e.name && !e.category) return;
-    awardHTML += `<span class="award-item">${e.category?`<span class="award-cat">${esc(e.category)}</span> `:''}${esc(e.name||'')}</span>`;
-  });
-
-  // Skills
-  let skillHTML = '';
-  const skillGroups = d.skill_groups || [];
-  if (skillGroups.length) {
-    skillHTML = skillGroups.map(g => {
-      if (!g.label && !g.tags?.length) return '';
-      const tags = (g.tags||[]).map(t => `<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;background:${tpl.themeColor};color:#fff;margin:2px 3px 2px 0;">${esc(t)}</span>`).join('');
-      return `<div style="margin-bottom:6px;"><div style="font-weight:600;font-size:12px;color:#111827;margin-bottom:3px;">${esc(g.label||'')}</div>${tags}${g.desc?`<div style="font-size:11px;color:#6b7280;margin-top:3px;">${esc(g.desc)}</div>`:''}</div>`;
-    }).join('');
-  }
-
-  // Student work
-  let swHTML = '';
-  (d.student_work||[]).forEach(e => {
-    if (!e.org) return;
-    swHTML += `<div class="card"><div class="card-row"><span class="card-left">${esc(e.org)}</span><span class="card-center">${esc(e.role||'')}</span><span class="card-right">${esc(e.period||'')}</span></div>${e.desc?`<div class="card-sub">${esc(e.desc)}</div>`:''}</div>`;
-  });
-
-  // Custom sections
-  let csHTML = '';
-  (d.custom_sections||[]).forEach(cs => {
-    if (_hiddenModules.includes(cs.id)) return;
-    csHTML += `<div class="section"><div class="section-title">📌 ${esc(cs.title)}</div><div class="card"><div style="font-size:12px;white-space:pre-wrap;">${esc(cs.content||'')}</div></div></div>`;
-  });
-
-  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><style>
-    @page{size:A4;margin:0} *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'PingFang SC','Microsoft YaHei',sans-serif;font-size:${tpl.bodyFontSize}px;color:#374151;line-height:${tpl.lineHeight};background:#fff}
-    .page{width:210mm;min-height:297mm;padding:${tpl.pageMargin}mm}
-    .header{padding-bottom:12px;margin-bottom:6mm;border-bottom:2px solid ${tpl.themeColor};break-inside:avoid}
-    .header-name{font-size:${tpl.bodyFontSize*2}px;font-weight:700;color:#111827;margin-bottom:6px}
-    .header-info{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:#6b7280}
-    .section{margin-bottom:5mm}
-    .section-title{font-size:${Math.round(tpl.bodyFontSize*1.15)}px;font-weight:700;color:#111827;padding-bottom:4px;margin-bottom:5px;border-bottom:1px solid #e5e7eb;break-after:avoid}
-    .card{background:#f9fafb;border-radius:4px;padding:3mm 3.5mm;margin-bottom:2mm;break-inside:avoid}
-    .card-row{display:flex;align-items:baseline;gap:2mm}
-    .card-left{font-weight:600;color:#111827;flex-shrink:0}
-    .card-center{flex:1;font-size:12px;color:#374151}
-    .card-right{font-size:12px;color:#6b7280;white-space:nowrap}
-    .card-sub{font-size:11.5px;color:#6b7280;margin-top:1.5mm;line-height:1.6}
-    .award-list{display:flex;flex-wrap:wrap;gap:2mm 5mm}
-    .award-item{font-size:12px;color:#374151}.award-cat{font-weight:600;color:#111827}
-  </style></head><body><div class="page">
-    <div class="header"><div class="header-left">
-      <div class="header-name">${esc(name||title)}</div>
-      <div class="header-info">${d.phone?`<span>📞 ${esc(d.phone)}</span>`:''}${d.email?`<span>✉️ ${esc(d.email)}</span>`:''}${d.hometown?`<span>📍 ${esc(d.hometown)}</span>`:''}</div>
-    </div></div>
-    ${!_hiddenModules.includes('education')&&eduHTML?`<div class="section"><div class="section-title">🎓 ${esc(d._sectionTitles?.education||'教育背景')}</div>${eduHTML}</div>`:''}
-    ${!_hiddenModules.includes('internships')&&internHTML?`<div class="section"><div class="section-title">💼 ${esc(d._sectionTitles?.internships||'实习经历')}</div>${internHTML}</div>`:''}
-    ${!_hiddenModules.includes('projects')&&projHTML?`<div class="section"><div class="section-title">🚀 ${esc(d._sectionTitles?.projects||'项目经历')}</div>${projHTML}</div>`:''}
-    ${!_hiddenModules.includes('skills')&&skillHTML?`<div class="section"><div class="section-title">🛠 ${esc(d._sectionTitles?.skills||'专业技能')}</div><div class="card">${skillHTML}</div></div>`:''}
-    ${!_hiddenModules.includes('awards')&&awardHTML?`<div class="section"><div class="section-title">🏆 ${esc(d._sectionTitles?.awards||'获奖情况')}</div><div class="card"><div class="award-list">${awardHTML}</div></div></div>`:''}
-    ${!_hiddenModules.includes('student_work')&&swHTML?`<div class="section"><div class="section-title">📋 ${esc(d._sectionTitles?.student_work||'学生工作')}</div>${swHTML}</div>`:''}
-    ${csHTML}
-  </div></body></html>`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -992,23 +894,7 @@ async function aiChat() {
   input.value = '';
 }
 
-// ═══════════════════════════════════════════════════
-// PDF EXPORT
-// ═══════════════════════════════════════════════════
-async function exportPdf(type) {
-  if (!_resumeId) { await saveResume(); if (!_resumeId) return alert('请先保存简历'); }
-  const url = type === 'latex' ? '/api/ai/export-pdf-latex' : '/api/ai/export-pdf';
-  const res = await fetch(url, { method:'POST', headers:authHeaders(), body:JSON.stringify({resume_id:_resumeId}) }).then(r => r.json());
-  if (!res.success) return alert(res.error);
-  const bytes = atob(res.data.pdf_base64);
-  const arr = new Uint8Array(bytes.length);
-  for (let i=0;i<bytes.length;i++) arr[i] = bytes.charCodeAt(i);
-  const blob = new Blob([arr], {type:'application/pdf'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = res.data.filename;
-  a.click();
-}
+// PDF export now handled by /js/resume-template-preview.js (with template config)
 
 // ═══════════════════════════════════════════════════
 // RESIZER
