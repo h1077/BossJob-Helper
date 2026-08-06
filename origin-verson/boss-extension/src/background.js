@@ -824,10 +824,20 @@ async function runCollect() {
 
   // ── 筛选 ──
   state.phase = 'screening'; pushPhase();
-  // 只在有 AI 分析结果时才提取关键词；原始简历文本不适合暴力切词匹配
-  const keywords = cfg.useResumeMatch ? extractKeywords(cfg.resumeAnalysis || '') : [];
-  // 提取弱项关键词用于扣分
-  const weaknesses = cfg.useResumeMatch ? extractWeaknesses(cfg.resumeAnalysis || '') : [];
+  // 匹配关键词：优先 resumeAnalysis（AI 分析），降级 resumeText（简历原文）
+  let keywords = [];
+  let weaknesses = [];
+  if (cfg.useResumeMatch) {
+    keywords = extractKeywords(cfg.resumeAnalysis || '');
+    weaknesses = extractWeaknesses(cfg.resumeAnalysis || '');
+    // 如果 AI 分析为空但简历文本存在，从简历文本中提取关键词作为兜底
+    if (keywords.length === 0 && (cfg.resumeText || '').trim()) {
+      keywords = extractTokensFromText(cfg.resumeText.slice(0, 3000));
+      if (keywords.length > 0) {
+        log('ℹ️ 未填写简历分析，从简历原文提取 ' + keywords.length + ' 个关键词用于匹配', 'info');
+      }
+    }
+  }
   const applied = await chrome.storage.local.get('appliedCompanies');
   const appliedSet = new Set((applied.appliedCompanies || '').split(',').filter(Boolean));
 
@@ -842,9 +852,11 @@ async function runCollect() {
     log('提取弱项(' + weaknesses.length + '个): ' + weaknesses.slice(0, 15).join(', '), 'info');
   }
   if (!cfg.useResumeMatch) {
-    log('⚠ 简历匹配已关闭（useResumeMatch=false），关键词提取已跳过。开启后可提高投递精准度', 'warn');
-  } else if (cfg.useResumeMatch && keywords.length === 0) {
-    log('⚠ 已开启简历匹配但未填写简历分析，匹配功能实际未生效（需先点"AI分析简历"）', 'warn');
+    log('⚠ 简历匹配已关闭（useResumeMatch=false），所有岗位将直接通过筛选。建议在④简历匹配中开启', 'warn');
+  } else if (keywords.length === 0) {
+    log('ℹ️ 未填写简历内容，匹配功能暂时跳过。请先在④简历匹配中导入简历', 'info');
+  } else {
+    log('✅ 简历匹配已启用：' + keywords.length + ' 个关键词，匹配阈值 ' + cfg.matchMinScore + ' 分', 'success');
   }
   log('welfare: "' + (cfg.welfare || '(未设置)') + '" → ' + welfareKeywords.length + ' 个关键词: [' + welfareKeywords.join(', ') + ']', 'info');
   log('excludeHeadhunters: ' + cfg.excludeHeadhunters, 'info');
