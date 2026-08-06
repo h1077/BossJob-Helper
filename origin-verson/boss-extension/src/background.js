@@ -505,7 +505,7 @@ function scoreJobMatch(job, keywords) {
   const title = (job.name || '').toLowerCase();
   const tags = (job.tags || []).join(' ').toLowerCase();
   let score = 0;
-  for (const kw of keywords) {
+  for (const kw of searchKeywords) {
     const k = kw.toLowerCase();
     if (title.includes(k)) score += CONFIG.MATCH.TITLE_WEIGHT;
     if (tags.includes(k)) score += CONFIG.MATCH.DESC_WEIGHT;
@@ -601,6 +601,18 @@ function parseCities(cityStr) {
 }
 function buildSearchUrlForCity(cfg, cityObj) {
   let url = 'https://www.zhipin.com/web/geek/jobs?query=' + encodeURIComponent(cfg.keyword || '') + '&city=' + cityObj.code;
+  if (cfg.salaryRange) url += '&salary=' + cfg.salaryRange;
+  return url;
+}
+
+// ── 多关键词搜索 ──
+function parseKeywords(keywordStr) {
+  if (!keywordStr || !keywordStr.trim()) return [''];
+  return keywordStr.split(/[\/\/,，、\n]+/).map(k => k.trim()).filter(Boolean);
+}
+
+function buildSearchUrlForKeywordCity(keyword, cityObj, cfg) {
+  let url = 'https://www.zhipin.com/web/geek/jobs?query=' + encodeURIComponent(keyword) + '&city=' + cityObj.code;
   if (cfg.salaryRange) url += '&salary=' + cfg.salaryRange;
   return url;
 }
@@ -738,34 +750,46 @@ async function runCollect() {
   }
   log('今日已投递：' + daily.count + ' / ' + daily.limit);
 
-  // 多城市收集
+  // 多关键词 × 多城市收集（先按关键词分割，再按城市轮询，去重）
+  const searchKeywords = parseKeywords(cfg.keyword);
   const cities = parseCities(cfg.city);
   const welfareKeywords = parseWelfare(cfg.welfare);
-  log('关键词：' + cfg.keyword + ' | 城市：' + cities.map(c => c.name).join('、') +
+  log('关键词：' + searchKeywords.join(' | ') + ' | 城市：' + cities.map(c => c.name).join('、') +
     (welfareKeywords.length ? ' | 福利：' + welfareKeywords.join('、') : ''));
 
   const allJobs = [];
-  for (const cityObj of cities) {
+  const seen = {};
+  for (const kw of searchKeywords) {
     if (state.aborted) break;
-    log('🏙 切换城市：' + cityObj.name + (cityObj.found ? '' : '（未识别，按全国）'));
-    const url = buildSearchUrlForCity(cfg, cityObj);
-    const tab = await ensureTab(url);
-    await ensureInjected(tab.id, 'src/content-search.js');
+    const totalBefore = allJobs.length;
+    for (const cityObj of cities) {
+      if (state.aborted) break;
+      log('🏙 搜索：「' + kw + '」· ' + cityObj.name + (cityObj.found ? '' : '（未识别，按全国）'));
+      const url = buildSearchUrlForKeywordCity(kw, cityObj, cfg);
+      const tab = await ensureTab(url);
+      await ensureInjected(tab.id, 'src/content-search.js');
 
-    const r = await sendToTab(tab.id, {
-      type: 'SCRAPE',
-      count: cfg.count || 60,
-      welfareKeywords: welfareKeywords
-    });
-    if (r && r.success && r.jobs) {
-      allJobs.push(...r.jobs.map(j => ({ ...j, city: cityObj.name })));
-      log('  ' + cityObj.name + '：收集到 ' + r.jobs.length + ' 个岗位');
+      const r = await sendToTab(tab.id, {
+        type: 'SCRAPE',
+        count: cfg.count || 60,
+        welfareKeywords: welfareKeywords
+      });
+      if (r && r.success && r.jobs) {
+        for (const job of r.jobs) {
+          if (seen[job.id]) continue;
+          seen[job.id] = 1;
+          allJobs.push({ ...job, city: cityObj.name, searchKeyword: kw });
+        }
+      }
+      log('  → 收集到 ' + (r && r.jobs ? r.jobs.length : 0) + ' 个（去重后累计 ' + allJobs.length + '）');
+      await rand(2000, 4000);
     }
-    await rand(2000, 4000);
+    const added = allJobs.length - totalBefore;
+    log('🔑 关键词「' + kw + '」共贡献 ' + added + ' 个岗位');
   }
   state.jobs = allJobs;
   await updateJobTracker('total', state.jobs.length);
-  log('共收集 ' + state.jobs.length + ' 个岗位（' + cities.length + ' 个城市）', 'success');
+  log('共收集 ' + state.jobs.length + ' 个岗位（' + searchKeywords.length + ' 关键词 × ' + cities.length + ' 城市）', 'success');
   if (!state.jobs.length) { state.phase = 'idle'; pushPhase(); return; }
 
   // ── 同步到桌面端职位追踪 ──
@@ -848,13 +872,13 @@ async function runCollect() {
       continue;
     }
 
-    // 福利筛选（AND 逻辑：从收集阶段移到筛选阶段，检查岗位名称/标签/公司）
+    // 福利筛选（OR 逻辑：任一关键词匹配即可通过，避免 AND 过于严格）
     if (welfareKeywords && welfareKeywords.length > 0) {
       const haystack = [job.name, ...(job.tags || []), job.company].filter(Boolean).join(' ').toLowerCase();
-      const allMatch = welfareKeywords.every(kw => haystack.includes(kw.toLowerCase()));
-      if (!allMatch) {
+      const anyMatch = welfareKeywords.some(kw => haystack.includes(kw.toLowerCase()));
+      if (!anyMatch) {
         filterStats.welfare++;
-        if (sampleRejects.length < 3) sampleRejects.push({ name: job.name, reason: '福利不匹配', detail: '需要: [' + welfareKeywords.join(', ') + '] | 岗位文本: ' + haystack.slice(0, 100) });
+        if (sampleRejects.length < 3) sampleRejects.push({ name: job.name, reason: '福利不匹配', detail: '需要任一: [' + welfareKeywords.join(', ') + '] | 岗位文本: ' + haystack.slice(0, 100) });
         continue;
       }
     }
