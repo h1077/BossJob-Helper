@@ -218,6 +218,23 @@
     return { success: true, jd: jd.slice(0, 2000) };
   }
 
+  // 模拟可信点击：PointerEvent 序列比 click() 更接近真人操作
+  function credibleClick(el) {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const opts = { bubbles: true, cancelable: true, clientX: cx, clientY: cy };
+    el.dispatchEvent(new PointerEvent('pointerover', opts));
+    el.dispatchEvent(new PointerEvent('pointerenter', opts));
+    el.dispatchEvent(new PointerEvent('pointerdown', opts));
+    // 微延迟模拟按下停顿
+    setTimeout(() => {
+      el.dispatchEvent(new PointerEvent('pointerup', opts));
+      el.dispatchEvent(new MouseEvent('click', opts));
+    }, 50 + Math.random() * 100);
+  }
+
   async function goChat(job, greeting, cfg) {
     let btn = await waitFor(SELECTORS.jobs.immediateChatBtn, 5000);
     if (!btn) {
@@ -226,13 +243,13 @@
     }
     if (!btn) {
       const card = findCard(job);
-      if (card) { card.click(); await sleep(1200); btn = await waitFor(SELECTORS.jobs.immediateChatBtn, 4000); }
+      if (card) { credibleClick(card); await sleep(1200); btn = await waitFor(SELECTORS.jobs.immediateChatBtn, 4000); }
     }
     if (!btn) return { success: false, error: '未找到立即沟通按钮' };
-    btn.click();
+    credibleClick(btn);
     await sleep(1500);
     const go = await waitForText(['继续沟通'], 4000);
-    if (go) { go.click(); return { success: true, navigated: true }; }
+    if (go) { credibleClick(go); return { success: true, navigated: true }; }
     return { success: true, navigated: false };
   }
 

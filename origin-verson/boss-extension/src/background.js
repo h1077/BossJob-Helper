@@ -4,6 +4,26 @@ importScripts('/src/selectors.js', '/src/conversation-strategy.js', '/src/deskto
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (a, b) => sleep(a + Math.random() * (b - a));
 
+// ── 泊松分布延迟（模拟真人行为：大部分集中在均值附近，偶尔长尾）──
+function poissonDelay(meanMs) {
+  const meanSec = meanMs / 1000;
+  const L = Math.exp(-meanSec);
+  let k = 0, p = 1;
+  while (p > L) { k++; p *= Math.random(); }
+  return sleep((k - 1) * 1000);
+}
+
+// ── 投递间隔：泊松分布为主 + 10% 长暂停（降低行为检测风险）──
+async function deliveryDelay(isBetweenJobs) {
+  // 岗位间基础间隔：泊松分布，均值 3.5s
+  await poissonDelay(3500);
+  // 10% 概率插入长暂停（30-90s），模拟离开/浏览其他内容
+  if (isBetweenJobs && Math.random() < 0.1) {
+    const longPause = 30000 + Math.floor(Math.random() * 60000);
+    await safeSleep(longPause);
+  }
+}
+
 // SW-safe sleep: 长睡眠拆成小块 + storage 心跳，防止 MV3 SW 被杀死导致 Promise 丢失
 const safeSleep = async (ms) => {
   const CHUNK = 5000; // 每 5 秒心跳一次
@@ -1209,7 +1229,7 @@ async function runDeliver() {
     progress(i + 1, total, '投递');
 
     // 快速模式：固定 2.5-4.5s 随机延迟（风控异常时 RiskManager 在上方已处理暂停）
-    await rand(2500, 4500);
+    await deliveryDelay(true);
   }
 
   const ok = state.results.filter(r => r.ok).length;
