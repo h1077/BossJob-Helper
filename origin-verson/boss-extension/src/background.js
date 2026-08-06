@@ -998,12 +998,6 @@ async function runDeliver() {
   let skippedReasons = {};
   state.phase = 'delivering'; pushPhase();
 
-  // 检查跟进消息
-  if (cfg.followUpEnabled) {
-    const followUpCount = await checkFollowUps(cfg);
-    if (followUpCount > 0) log('  已发送 ' + followUpCount + ' 条跟进消息', 'success');
-  }
-
   // 从 storage 恢复（SW 可能被回收）
   if (!state.queue.length) {
     const d = await chrome.storage.local.get(['sw_queue', 'sw_queue_index', 'sw_greetings']);
@@ -1012,6 +1006,13 @@ async function runDeliver() {
     state.greetings = d.sw_greetings || {};
   }
   const cfg = defaultCfg(await getCfg());
+
+  // 检查跟进消息
+  if (cfg.followUpEnabled) {
+    const followUpCount = await checkFollowUps(cfg);
+    if (followUpCount > 0) log('  已发送 ' + followUpCount + ' 条跟进消息', 'success');
+  }
+
   const searchUrl = buildSearchUrl(cfg);
 
   const total = state.queue.length;
