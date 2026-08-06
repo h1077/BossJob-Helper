@@ -5,6 +5,22 @@
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+  // ── zp_stoken 动态 token 提取（每日变化，防止 API 拦截）──
+  function extractZpStoken() {
+    // 1. window 全局变量
+    if (window.__zp_stoken__) return window.__zp_stoken__;
+    // 2. cookie
+    const cm = document.cookie.match(/__zp_stoken__=([^;]+)/);
+    if (cm) return cm[1];
+    // 3. 页面嵌入的 script 变量
+    const scripts = document.querySelectorAll('script');
+    for (const s of scripts) {
+      const m = (s.textContent || '').match(/__zp_stoken__\s*=\s*['"]([^'"]+)['"]/);
+      if (m) return m[1];
+    }
+    return '';
+  }
+
   // ── 方案B：调用 BOSS 搜索 API，薪资明文 ──
   async function scrapeViaApi(count) {
     const url = new URL(window.location.href);
@@ -25,9 +41,13 @@
         '&page=' + page +
         '&pageSize=' + pageSize;
 
+      const zpStoken = extractZpStoken();
       const resp = await fetch(apiUrl, {
         credentials: 'include',
-        headers: { 'Referer': window.location.href }
+        headers: {
+          'Referer': window.location.href,
+          ...(zpStoken ? { 'X-ZP-Stoken': zpStoken } : {}),
+        }
       });
       if (!resp.ok) throw new Error('API HTTP ' + resp.status);
 
