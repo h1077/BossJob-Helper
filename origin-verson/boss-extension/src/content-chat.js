@@ -40,29 +40,26 @@
     return new File([arr], name || 'resume.png', { type: mime });
   }
 
+  async function assignImageForBoss(input, file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    try {
+      input.files = dt.files;
+    } catch (e) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'files').set;
+      setter.call(input, dt.files);
+    }
+    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
   async function sendImage(image) {
     if (!image) return true;
     const input = findVisible(IMG_SELS) || document.querySelector('input[type=file]');
     if (!input) return false;
     const file = dataURLtoFile(image, 'resume.png');
     if (!file) return false;
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'files').set;
-    setter.call(input, dt.files);
-
-    input.dispatchEvent(
-      new Event('input',{
-        bubbles: true,
-        composed: true,
-      })
-    );
-
-    input.dispatchEvent(
-      new Event('change', {
-       bubbles: true 
-      })
-    );
+    await assignImageForBoss(input, file);
     await sleep(2500);
     return true;
   }
@@ -135,11 +132,7 @@
       try {
         const file = dataURLtoFile(resume.data, resume.path || 'resume.png');
         if (!file) continue;
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'files').set;
-        setter.call(input, dt.files);
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        await assignImageForBoss(input, file);
         sent++;
         await sleep(1200);
       } catch (e) { /* skip */ }
