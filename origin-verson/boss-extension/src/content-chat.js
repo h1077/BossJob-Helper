@@ -50,7 +50,19 @@
     dt.items.add(file);
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'files').set;
     setter.call(input, dt.files);
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    input.dispatchEvent(
+      new Event('input',{
+        bubbles: true,
+        composed: true,
+      })
+    );
+
+    input.dispatchEvent(
+      new Event('change', {
+       bubbles: true 
+      })
+    );
     await sleep(2500);
     return true;
   }
